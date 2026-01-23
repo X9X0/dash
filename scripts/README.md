@@ -29,14 +29,15 @@ chmod +x scripts/*.sh
 
 ## Scripts Overview
 
-| Script | Purpose |
-|--------|---------|
-| `deploy.sh` | Full deployment: installs Node, deps, builds, creates systemd service |
-| `update.sh` | Pull latest from git, rebuild, restart service |
-| `backup.sh` | Create timestamped backup of database and config |
-| `restore.sh` | Restore from a backup file |
-| `setup-backup.sh` | Configure automated daily backups |
-| `backup.bat` | Windows backup script |
+| Script | Platform | Purpose |
+|--------|----------|---------|
+| `deploy.sh` | Linux | Full deployment: installs Node, deps, builds, creates systemd service |
+| `update.sh` | Linux | Pull latest from git, rebuild, restart service |
+| `backup.sh` | Linux | Create timestamped backup of database and config |
+| `restore.sh` | Linux | Restore from a backup file |
+| `setup-backup.sh` | Linux | Configure automated daily backups |
+| `backup.bat` | Windows | Windows backup script (batch) |
+| `backup.ps1` | Windows | Windows backup script (PowerShell) |
 
 ## Deployment Steps
 
