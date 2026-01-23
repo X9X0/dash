@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         String   @default("viewer") // admin, operator, viewer
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  reservations        Reservation[]
+  jobs                Job[]
+  activityLogs        ActivityLog[]
+  maintenanceRequests MaintenanceRequest[]
+  serviceRecords      ServiceRecord[]
+  hourEntries         HourEntry[]
+  notifications       Notification[]
+
+  @@map("users")
+}
+
+model MachineType {
+  id           String  @id @default(cuid())
+  name         String
+  category     String  // robot, printer
+  icon         String?
+  fieldsSchema String? @map("fields_schema") // JSON string
+
+  machines Machine[]
+
+  @@map("machine_types")
+}
+
+model Machine {
+  id        String   @id @default(cuid())
+  name      String
+  typeId    String   @map("type_id")
+  model     String
+  location  String
+  status    String   @default("available") // available, in_use, maintenance, offline, error
+  hourMeter Float    @default(0) @map("hour_meter")
+  buildDate DateTime? @map("build_date")
+  icon      String?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  type         MachineType          @relation(fields: [typeId], references: [id])
+  ips          MachineIP[]
+  customFields MachineCustomField[]
+  statusLogs   MachineStatusLog[]
+  reservations Reservation[]
+  jobs         Job[]
+  activityLogs ActivityLog[]
+  maintenance  MaintenanceRequest[]
+  serviceRecords ServiceRecord[]
+  hourEntries  HourEntry[]
+
+  @@map("machines")
+}
+
+model MachineIP {
+  id        String @id @default(cuid())
+  machineId String @map("machine_id")
+  label     String
+  ipAddress String @map("ip_address")
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@map("machine_ips")
+}
+
+model MachineCustomField {
+  id         String @id @default(cuid())
+  machineId  String @map("machine_id")
+  fieldName  String @map("field_name")
+  fieldValue String @map("field_value")
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@map("machine_custom_fields")
+}
+
+model MachineStatusLog {
+  id        String   @id @default(cuid())
+  machineId String   @map("machine_id")
+  status    String
+  source    String   @default("manual") // manual, api
+  timestamp DateTime @default(now())
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@map("machine_status_log")
+}
+
+model Reservation {
+  id        String   @id @default(cuid())
+  machineId String   @map("machine_id")
+  userId    String   @map("user_id")
+  startTime DateTime @map("start_time")
+  endTime   DateTime @map("end_time")
+  purpose   String
+  status    String   @default("pending") // pending, confirmed, cancelled, completed
+  createdAt DateTime @default(now()) @map("created_at")
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reservations")
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  machineId String    @map("machine_id")
+  userId    String    @map("user_id")
+  name      String
+  startTime DateTime? @map("start_time")
+  endTime   DateTime? @map("end_time")
+  status    String    @default("queued") // queued, running, completed, failed, cancelled
+  notes     String?
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("jobs")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  machineId String   @map("machine_id")
+  userId    String   @map("user_id")
+  action    String
+  details   String?
+  timestamp DateTime @default(now())
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("activity_logs")
+}
+
+model MaintenanceRequest {
+  id          String    @id @default(cuid())
+  machineId   String    @map("machine_id")
+  userId      String    @map("user_id")
+  type        String    // damage, repair, upgrade
+  priority    String    @default("medium") // low, medium, high, critical
+  description String
+  status      String    @default("submitted") // submitted, in_progress, resolved
+  createdAt   DateTime  @default(now()) @map("created_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("maintenance_requests")
+}
+
+model ServiceRecord {
+  id          String   @id @default(cuid())
+  machineId   String   @map("machine_id")
+  userId      String   @map("user_id")
+  type        String   // repair, upgrade, modification, calibration
+  description String
+  partsUsed   String?  @map("parts_used")
+  cost        Float?
+  performedBy String   @map("performed_by")
+  performedAt DateTime @map("performed_at")
+  notes       String?
+  photos      String?  // JSON array of file paths
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("service_records")
+}
+
+model HourEntry {
+  id        String   @id @default(cuid())
+  machineId String   @map("machine_id")
+  userId    String   @map("user_id")
+  hours     Float
+  date      DateTime
+  notes     String?
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("hour_entries")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
