@@ -65,12 +65,12 @@ log_info "Installing dependencies..."
 npm install
 log_success "Dependencies installed"
 
-# Run database migrations
-log_info "Running database migrations..."
+# Update database schema
+log_info "Updating database schema..."
 cd "$PROJECT_DIR/server"
 npx prisma generate
-npx prisma migrate deploy
-log_success "Database migrations complete"
+npx prisma db push
+log_success "Database schema updated"
 
 # Build server
 log_info "Building server..."

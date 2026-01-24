@@ -182,16 +182,22 @@ setup_database() {
 
     cd "$PROJECT_DIR/server"
 
+    # Check if this is a fresh database (for seeding decision)
+    local NEEDS_SEED=false
+    if [ ! -f "$DATA_DIR/dash.db" ]; then
+        NEEDS_SEED=true
+    fi
+
     # Generate Prisma client
     npx prisma generate
 
-    # Run migrations
-    npx prisma migrate deploy
+    # Push schema to database (creates tables)
+    npx prisma db push
 
-    # Seed database if it's empty
-    if [ ! -f "$DATA_DIR/dash.db" ] || [ ! -s "$DATA_DIR/dash.db" ]; then
+    # Seed database if it's fresh
+    if [ "$NEEDS_SEED" = true ]; then
         log_info "Seeding database with initial data..."
-        npx prisma db seed || log_warn "Seed script not found or failed, skipping..."
+        npx prisma db seed || log_warn "Seed script failed, skipping..."
     fi
 
     log_success "Database setup complete"
