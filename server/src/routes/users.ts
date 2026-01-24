@@ -45,7 +45,7 @@ router.get('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
 // Update user (admin only, or self)
 router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const isAdmin = req.user!.role === 'admin'
     const isSelf = req.user!.id === id
 
@@ -85,7 +85,7 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
 // Delete user (admin only)
 router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
 
     // Prevent deleting self
     if (req.user!.id === id) {

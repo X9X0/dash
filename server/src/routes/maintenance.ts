@@ -53,7 +53,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // Get maintenance request by ID
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const request = await prisma.maintenanceRequest.findUnique({
       where: { id },
       include: {
@@ -126,7 +126,7 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
 // Update maintenance request (admin only for status changes)
 router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = updateMaintenanceSchema.parse(req.body)
 
     const existing = await prisma.maintenanceRequest.findUnique({ where: { id } })
@@ -183,7 +183,7 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
 // Delete maintenance request (admin only)
 router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     await prisma.maintenanceRequest.delete({ where: { id } })
     res.json({ success: true })
   } catch (error) {

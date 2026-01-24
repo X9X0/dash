@@ -54,7 +54,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // Get reservation by ID
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const reservation = await prisma.reservation.findUnique({
       where: { id },
       include: {
@@ -134,7 +134,7 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
 // Update reservation
 router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = updateReservationSchema.parse(req.body)
 
     const existing = await prisma.reservation.findUnique({ where: { id } })
@@ -196,7 +196,7 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
 // Delete reservation
 router.delete('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
 
     const existing = await prisma.reservation.findUnique({ where: { id } })
     if (!existing) {

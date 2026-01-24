@@ -42,7 +42,7 @@ router.get('/unread-count', authenticate, async (req: AuthRequest, res) => {
 // Mark notification as read
 router.patch('/:id/read', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
 
     const notification = await prisma.notification.findUnique({ where: { id } })
     if (!notification) {
@@ -82,7 +82,7 @@ router.patch('/mark-all-read', authenticate, async (req: AuthRequest, res) => {
 // Delete notification
 router.delete('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
 
     const notification = await prisma.notification.findUnique({ where: { id } })
     if (!notification) {

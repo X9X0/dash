@@ -51,7 +51,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // Get service record by ID
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const record = await prisma.serviceRecord.findUnique({
       where: { id },
       include: {
@@ -77,7 +77,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 // Update service record
 router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = updateServiceRecordSchema.parse(req.body)
 
     const updateData: Record<string, unknown> = { ...data }
@@ -113,7 +113,7 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
 // Delete service record
 router.delete('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     await prisma.serviceRecord.delete({ where: { id } })
     res.json({ success: true })
   } catch (error) {

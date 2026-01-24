@@ -63,7 +63,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
 // Update machine type (admin only)
 router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = createTypeSchema.partial().parse(req.body)
 
     const updateData: Record<string, unknown> = { ...data }
@@ -92,7 +92,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
 // Delete machine type (admin only)
 router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
 
     // Check if any machines use this type
     const machineCount = await prisma.machine.count({ where: { typeId: id } })

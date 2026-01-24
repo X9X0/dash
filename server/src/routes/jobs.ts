@@ -46,7 +46,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // Get job by ID
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const job = await prisma.job.findUnique({
       where: { id },
       include: {
@@ -110,7 +110,7 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
 // Update job
 router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = updateJobSchema.parse(req.body)
 
     const updateData: Record<string, unknown> = {}
@@ -164,7 +164,7 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
 // Delete job
 router.delete('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     await prisma.job.delete({ where: { id } })
     res.json({ success: true })
   } catch (error) {

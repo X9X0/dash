@@ -35,7 +35,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // Get activity log by ID
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const log = await prisma.activityLog.findUnique({
       where: { id },
       include: {

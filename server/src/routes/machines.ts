@@ -77,7 +77,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // Get machine by ID
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const machine = await prisma.machine.findUnique({
       where: { id },
       include: {
@@ -149,7 +149,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
 // Update machine (admin only)
 router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = updateMachineSchema.parse(req.body)
 
     const updateData: Record<string, unknown> = { ...data }
@@ -194,7 +194,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
 // Update machine status
 router.patch('/:id/status', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const { status, source } = updateStatusSchema.parse(req.body)
 
     const machine = await prisma.machine.update({
@@ -239,7 +239,7 @@ router.patch('/:id/status', authenticate, requireOperator, async (req: AuthReque
 // Add hours to machine
 router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const { hours, date, notes } = addHoursSchema.parse(req.body)
 
     // Create hour entry
@@ -282,7 +282,7 @@ router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest
 // Delete machine (admin only)
 router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     await prisma.machine.delete({ where: { id } })
     res.json({ success: true })
   } catch (error) {
@@ -294,7 +294,7 @@ router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) 
 // Get service history for machine
 router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const records = await prisma.serviceRecord.findMany({
       where: { machineId: id },
       include: { user: { select: { id: true, name: true } } },
@@ -310,7 +310,7 @@ router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) =
 // Add service record
 router.post('/:id/service-history', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const data = req.body
 
     const record = await prisma.serviceRecord.create({
@@ -349,7 +349,7 @@ router.post('/:id/service-history', authenticate, requireOperator, async (req: A
 // Add IP address to machine
 router.post('/:id/ips', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const { label, ipAddress } = addIPSchema.parse(req.body)
 
     const ip = await prisma.machineIP.create({
@@ -373,7 +373,7 @@ router.post('/:id/ips', authenticate, requireAdmin, async (req: AuthRequest, res
 // Update IP address
 router.patch('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { ipId } = req.params
+    const ipId = req.params.ipId as string
     const { label, ipAddress } = addIPSchema.partial().parse(req.body)
 
     const ip = await prisma.machineIP.update({
@@ -391,7 +391,7 @@ router.patch('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthReque
 // Delete IP address
 router.delete('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
-    const { ipId } = req.params
+    const ipId = req.params.ipId as string
     await prisma.machineIP.delete({ where: { id: ipId } })
     res.json({ success: true })
   } catch (error) {
@@ -403,7 +403,7 @@ router.delete('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthRequ
 // Ping machine to check reachability
 router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
     const machine = await prisma.machine.findUnique({
       where: { id },
       include: { ips: true },
@@ -419,7 +419,7 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
 
     // Ping each IP and return results
     const pingResults = await Promise.all(
-      machine.ips.map(async (ip) => {
+      machine.ips.map(async (ip: { id: string; label: string; ipAddress: string }) => {
         try {
           // Use platform-appropriate ping command
           const isWindows = process.platform === 'win32'
@@ -435,7 +435,7 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
       })
     )
 
-    const anyReachable = pingResults.some((r) => r.reachable)
+    const anyReachable = pingResults.some((r: { reachable: boolean }) => r.reachable)
 
     res.json({
       reachable: anyReachable,
