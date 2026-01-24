@@ -109,6 +109,7 @@ export function AddMaintenanceDialog({
                     <SelectItem value="damage">Damage Report</SelectItem>
                     <SelectItem value="repair">Repair</SelectItem>
                     <SelectItem value="upgrade">Upgrade</SelectItem>
+                    <SelectItem value="checkout">Checkout</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

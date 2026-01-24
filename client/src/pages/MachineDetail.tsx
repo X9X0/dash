@@ -15,6 +15,7 @@ import {
   Network,
   X,
   Timer,
+  Wrench,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import {
@@ -38,6 +39,7 @@ import api from '@/services/api'
 import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
+import { MaintenanceRequestDialog } from '@/components/machines/MaintenanceRequestDialog'
 import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog } from '@/types'
 
 interface MachineDetailData extends Machine {
@@ -97,6 +99,9 @@ export function MachineDetail() {
   // Service record state
   const [showServiceRecord, setShowServiceRecord] = useState(false)
   const [editingServiceRecord, setEditingServiceRecord] = useState<ServiceRecord | null>(null)
+
+  // Maintenance request state
+  const [showMaintenanceRequest, setShowMaintenanceRequest] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -275,6 +280,12 @@ export function MachineDetail() {
             {pinging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
             Ping
           </Button>
+          {(user?.role === 'admin' || user?.role === 'operator') && (
+            <Button variant="outline" onClick={() => setShowMaintenanceRequest(true)}>
+              <Wrench className="h-4 w-4" />
+              Maintenance
+            </Button>
+          )}
           {isAdmin && (
             <>
               <Button variant="outline" onClick={() => navigate(`/machines/${id}/edit`)}>
@@ -593,6 +604,14 @@ export function MachineDetail() {
         machineName={machine.name}
         editingRecord={editingServiceRecord}
         onSave={handleServiceRecordSaved}
+      />
+
+      {/* Maintenance Request Dialog */}
+      <MaintenanceRequestDialog
+        open={showMaintenanceRequest}
+        onOpenChange={setShowMaintenanceRequest}
+        machineId={machine.id}
+        machineName={machine.name}
       />
     </div>
   )

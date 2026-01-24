@@ -8,14 +8,14 @@ const prisma = new PrismaClient()
 
 const createMaintenanceSchema = z.object({
   machineId: z.string().min(1),
-  type: z.enum(['damage', 'repair', 'upgrade']),
+  type: z.enum(['damage', 'repair', 'upgrade', 'checkout']),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   description: z.string().min(1),
   status: z.enum(['submitted', 'in_progress', 'resolved']).optional(),
 })
 
 const updateMaintenanceSchema = z.object({
-  type: z.enum(['damage', 'repair', 'upgrade']).optional(),
+  type: z.enum(['damage', 'repair', 'upgrade', 'checkout']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   description: z.string().optional(),
   status: z.enum(['submitted', 'in_progress', 'resolved']).optional(),

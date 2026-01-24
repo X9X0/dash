@@ -101,7 +101,7 @@ export interface ActivityLog {
 }
 
 export type MaintenancePriority = 'low' | 'medium' | 'high' | 'critical'
-export type MaintenanceType = 'damage' | 'repair' | 'upgrade'
+export type MaintenanceType = 'damage' | 'repair' | 'upgrade' | 'checkout'
 export type MaintenanceStatus = 'submitted' | 'in_progress' | 'resolved'
 
 export interface MaintenanceRequest {
