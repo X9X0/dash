@@ -51,3 +51,12 @@ coverage/
 # Misc
 *.log
 .cache/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Claude Code
+.claude/
+
+# Windows null device artifact
+nul

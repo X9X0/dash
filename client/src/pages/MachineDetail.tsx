@@ -37,6 +37,7 @@ import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
 import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
+import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
 import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog } from '@/types'
 
 interface MachineDetailData extends Machine {
@@ -562,6 +563,13 @@ export function MachineDetail() {
             )}
           </CardContent>
         </Card>
+
+        {/* Custom Fields */}
+        <CustomFieldsCard
+          machineId={machine.id}
+          machineType={machine.type}
+          canEdit={user?.role === 'admin' || user?.role === 'operator'}
+        />
       </div>
 
       {/* Add Hours Dialog */}

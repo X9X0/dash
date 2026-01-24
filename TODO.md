@@ -49,10 +49,10 @@
   - Currently no UI to manage machine types
   - Features needed: List types, create new types, edit, delete, manage custom field schemas
 
-- [ ] **Machine Custom Fields UI**
+- [x] **Machine Custom Fields UI**
   - Backend: MachineCustomField model exists
-  - No UI to add/edit custom fields on machines
-  - Features needed: Dynamic form based on type's fieldsSchema
+  - CustomFieldsCard component renders dynamic forms based on machine type's fieldsSchema
+  - Features: View/edit custom fields with string, number, boolean, select field types
 
 - [x] **Settings Page**
   - No user settings/preferences page

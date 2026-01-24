@@ -401,6 +401,54 @@ router.delete('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthRequ
   }
 })
 
+// Get custom fields for a machine
+router.get('/:id/custom-fields', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const customFields = await prisma.machineCustomField.findMany({
+      where: { machineId: id },
+    })
+    res.json(customFields)
+  } catch (error) {
+    console.error('Get custom fields error:', error)
+    res.status(500).json({ error: 'Failed to get custom fields' })
+  }
+})
+
+// Update custom fields for a machine (bulk upsert)
+router.put('/:id/custom-fields', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const fields = req.body as Array<{ fieldName: string; fieldValue: string }>
+
+    // Delete existing custom fields for this machine
+    await prisma.machineCustomField.deleteMany({
+      where: { machineId: id },
+    })
+
+    // Create new custom fields
+    if (fields && fields.length > 0) {
+      await prisma.machineCustomField.createMany({
+        data: fields.map((field) => ({
+          machineId: id,
+          fieldName: field.fieldName,
+          fieldValue: field.fieldValue,
+        })),
+      })
+    }
+
+    // Return updated custom fields
+    const customFields = await prisma.machineCustomField.findMany({
+      where: { machineId: id },
+    })
+
+    res.json(customFields)
+  } catch (error) {
+    console.error('Update custom fields error:', error)
+    res.status(500).json({ error: 'Failed to update custom fields' })
+  }
+})
+
 // Ping machine to check reachability
 router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
   try {
