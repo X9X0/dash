@@ -2,7 +2,12 @@ import express from 'express'
 import cors from 'cors'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
 import dotenv from 'dotenv'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 import { authRouter } from './routes/auth.js'
 import { usersRouter } from './routes/users.js'
@@ -50,6 +55,17 @@ app.use('/api/notifications', notificationsRouter)
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
+
+// Serve static files from the React app in production
+if (process.env.NODE_ENV === 'production') {
+  const clientDistPath = join(__dirname, '../../client/dist')
+  app.use(express.static(clientDistPath))
+
+  // Handle React routing - serve index.html for all non-API routes
+  app.get('*', (req, res) => {
+    res.sendFile(join(clientDistPath, 'index.html'))
+  })
+}
 
 // Socket.io setup
 setupSocket(io)
