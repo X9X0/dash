@@ -107,6 +107,20 @@ if [[ "$BACKUP_FILE" == *.zip ]]; then
         exit 1
     fi
     unzip -q "$BACKUP_FILE" -d "$TEMP_DIR"
+
+    # Fix Windows backslash paths - rename any directories/files with backslashes
+    # This handles zip files created on Windows with backslash path separators
+    cd "$TEMP_DIR"
+    for f in *\\*; do
+        if [ -e "$f" ]; then
+            # Convert backslashes to forward slashes
+            new_path="${f//\\//}"
+            mkdir -p "$(dirname "$new_path")"
+            mv "$f" "$new_path" 2>/dev/null || true
+        fi
+    done
+    cd - > /dev/null
+
 elif [[ "$BACKUP_FILE" == *.tar.gz ]] || [[ "$BACKUP_FILE" == *.tgz ]]; then
     # Handle Linux .tar.gz backups
     tar -xzf "$BACKUP_FILE" -C "$TEMP_DIR"
@@ -115,15 +129,19 @@ else
     exit 1
 fi
 
-# Find the backup content directory
-BACKUP_CONTENT_DIR=$(find "$TEMP_DIR" -maxdepth 2 -type d -name "dash_backup_*" | head -n1)
+# Find the backup content directory or database file
+# Search recursively to handle various directory structures
+BACKUP_CONTENT_DIR=$(find "$TEMP_DIR" -maxdepth 2 -type d -name "dash_backup_*" 2>/dev/null | head -n1)
 
 if [ -z "$BACKUP_CONTENT_DIR" ]; then
-    # Try finding database directly (flat structure from some Windows backups)
-    if [ -f "$TEMP_DIR/dash.db" ]; then
-        BACKUP_CONTENT_DIR="$TEMP_DIR"
+    # Try finding database directly (flat structure or Windows path issues)
+    DB_FILE=$(find "$TEMP_DIR" -name "dash.db" 2>/dev/null | head -n1)
+    if [ -n "$DB_FILE" ]; then
+        BACKUP_CONTENT_DIR=$(dirname "$DB_FILE")
     else
         log_error "Invalid backup format - no dash_backup_* directory or dash.db found"
+        log_info "Contents of temp directory:"
+        ls -laR "$TEMP_DIR"
         exit 1
     fi
 fi
