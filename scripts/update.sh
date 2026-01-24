@@ -4,6 +4,11 @@ set -e
 # =============================================================================
 # Dash - Update Script
 # Pull latest changes from git and rebuild
+#
+# Usage: ./update.sh [OPTIONS]
+#   --reset    Discard all local changes and reset to origin (production mode)
+#   --stash    Automatically stash changes without prompting
+#   --help     Show this help message
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +26,29 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Parse arguments
+AUTO_RESET=0
+AUTO_STASH=0
+for arg in "$@"; do
+    case $arg in
+        --reset)
+            AUTO_RESET=1
+            ;;
+        --stash)
+            AUTO_STASH=1
+            ;;
+        --help)
+            echo "Usage: ./update.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --reset    Discard all local changes and reset to origin (production mode)"
+            echo "  --stash    Automatically stash changes without prompting"
+            echo "  --help     Show this help message"
+            exit 0
+            ;;
+    esac
+done
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     SUDO=""
@@ -36,19 +64,66 @@ echo -e "${BLUE}  Dash - Update Script${NC}"
 echo -e "${BLUE}=========================================${NC}"
 echo ""
 
-# Check for uncommitted changes
-if [ -n "$(git status --porcelain)" ]; then
-    log_warn "You have uncommitted changes:"
-    git status --short
-    echo ""
-    read -p "Do you want to stash changes and continue? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git stash
+# Clean up known build artifacts and backup files (untracked, safe to delete)
+CLEANUP_PATTERNS=(
+    "client/tsconfig.tsbuildinfo"
+    "server/tsconfig.tsbuildinfo"
+    "*.tsbuildinfo"
+)
+for pattern in "${CLEANUP_PATTERNS[@]}"; do
+    find "$PROJECT_DIR" -name "$pattern" -type f -delete 2>/dev/null || true
+done
+
+# Check for uncommitted changes (excluding untracked files we don't care about)
+MODIFIED_FILES=$(git status --porcelain | grep -v "^??" | head -20)
+UNTRACKED_FILES=$(git status --porcelain | grep "^??" | head -20)
+
+if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
+    if [ -n "$MODIFIED_FILES" ]; then
+        log_warn "You have modified files:"
+        echo "$MODIFIED_FILES"
+        echo ""
+    fi
+    if [ -n "$UNTRACKED_FILES" ]; then
+        log_warn "You have untracked files:"
+        echo "$UNTRACKED_FILES"
+        echo ""
+    fi
+
+    if [ "$AUTO_RESET" -eq 1 ]; then
+        log_info "Resetting to origin (--reset flag)..."
+        git checkout -- .
+        git clean -fd
+        log_success "Local changes discarded"
+    elif [ "$AUTO_STASH" -eq 1 ]; then
+        log_info "Stashing changes (--stash flag)..."
+        git stash --include-untracked
         STASHED=1
+        log_success "Changes stashed"
     else
-        log_error "Update cancelled. Please commit or stash your changes first."
-        exit 1
+        echo "Options:"
+        echo "  [s] Stash changes (can restore later with 'git stash pop')"
+        echo "  [r] Reset to origin (DISCARD all local changes)"
+        echo "  [c] Cancel update"
+        echo ""
+        read -p "Choose an option [s/r/c]: " -n 1 -r
+        echo
+        case $REPLY in
+            [Ss])
+                git stash --include-untracked
+                STASHED=1
+                log_success "Changes stashed"
+                ;;
+            [Rr])
+                git checkout -- .
+                git clean -fd
+                log_success "Local changes discarded"
+                ;;
+            *)
+                log_error "Update cancelled."
+                exit 1
+                ;;
+        esac
     fi
 fi
 
