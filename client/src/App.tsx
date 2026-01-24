@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { Login, Register, Dashboard, Machines, MachineDetail, Calendar, Maintenance, Logs, Kiosk } from './pages'
+import { Login, Register, Dashboard, Machines, MachineDetail, MachineEdit, Calendar, Maintenance, Logs, Kiosk, Users, Notifications, MachineTypes, Settings } from './pages'
 import { Layout } from './components/Layout'
 import { useAuthStore } from './store/authStore'
 import { initSocket, disconnectSocket } from './services/socket'
@@ -69,6 +69,16 @@ function App() {
         }
       />
       <Route
+        path="/machines/:id/edit"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <MachineEdit />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
         path="/machines/:id"
         element={
           <PrivateRoute>
@@ -104,6 +114,46 @@ function App() {
           <PrivateRoute>
             <Layout>
               <Logs />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <Users />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/machine-types"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <MachineTypes />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <Notifications />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <Settings />
             </Layout>
           </PrivateRoute>
         }

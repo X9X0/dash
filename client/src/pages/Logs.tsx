@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Search, Download, Filter } from 'lucide-react'
+import { Search, Download, Filter, Plus, Pencil, Trash2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { Button, Card, CardContent, Input, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { machineService } from '@/services/machines'
+import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
+import { AddJobDialog } from '@/components/jobs/AddJobDialog'
 import type { ActivityLog, Job, Machine, JobStatus } from '@/types'
 
 const jobStatusBadgeVariants: Record<JobStatus, 'default' | 'secondary' | 'success' | 'destructive' | 'warning'> = {
@@ -15,6 +17,8 @@ const jobStatusBadgeVariants: Record<JobStatus, 'default' | 'secondary' | 'succe
 }
 
 export function Logs() {
+  const { user } = useAuthStore()
+  const canEdit = user?.role === 'admin' || user?.role === 'operator'
   const [activeTab, setActiveTab] = useState<'jobs' | 'activity'>('jobs')
   const [jobs, setJobs] = useState<Job[]>([])
   const [activities, setActivities] = useState<ActivityLog[]>([])
@@ -23,6 +27,8 @@ export function Logs() {
   const [machineFilter, setMachineFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [, setLoading] = useState(true)
+  const [showJobDialog, setShowJobDialog] = useState(false)
+  const [editingJob, setEditingJob] = useState<Job | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -103,6 +109,30 @@ export function Logs() {
     a.click()
   }
 
+  const handleJobSaved = (job: Job) => {
+    if (editingJob) {
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)))
+    } else {
+      setJobs((prev) => [job, ...prev])
+    }
+    setEditingJob(null)
+  }
+
+  const handleEditJob = (job: Job) => {
+    setEditingJob(job)
+    setShowJobDialog(true)
+  }
+
+  const handleDeleteJob = async (jobId: string) => {
+    if (!confirm('Are you sure you want to delete this job?')) return
+    try {
+      await api.delete(`/jobs/${jobId}`)
+      setJobs((prev) => prev.filter((j) => j.id !== jobId))
+    } catch (error) {
+      console.error('Failed to delete job:', error)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -110,10 +140,18 @@ export function Logs() {
           <h1 className="text-2xl font-bold">Jobs & Logs</h1>
           <p className="text-muted-foreground">View job history and activity logs</p>
         </div>
-        <Button variant="outline" onClick={exportToCSV}>
-          <Download className="h-4 w-4" />
-          Export CSV
-        </Button>
+        <div className="flex gap-2">
+          {canEdit && activeTab === 'jobs' && (
+            <Button onClick={() => setShowJobDialog(true)}>
+              <Plus className="h-4 w-4" />
+              Add Job
+            </Button>
+          )}
+          <Button variant="outline" onClick={exportToCSV}>
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -200,11 +238,12 @@ export function Logs() {
                     <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Start</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">End</th>
+                    {canEdit && <th className="px-4 py-3 text-right text-sm font-medium">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredJobs.map((job) => (
-                    <tr key={job.id} className="border-b last:border-0">
+                    <tr key={job.id} className="border-b last:border-0 group">
                       <td className="px-4 py-3">
                         <p className="font-medium">{job.name}</p>
                         {job.notes && (
@@ -226,6 +265,28 @@ export function Logs() {
                       <td className="px-4 py-3 text-sm text-muted-foreground">
                         {job.endTime && format(parseISO(job.endTime), 'MMM d, h:mm a')}
                       </td>
+                      {canEdit && (
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => handleEditJob(job)}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteJob(job.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -273,6 +334,18 @@ export function Logs() {
           </CardContent>
         </Card>
       )}
+
+      {/* Add/Edit Job Dialog */}
+      <AddJobDialog
+        open={showJobDialog}
+        onOpenChange={(open) => {
+          setShowJobDialog(open)
+          if (!open) setEditingJob(null)
+        }}
+        machines={machines}
+        editingJob={editingJob}
+        onSave={handleJobSaved}
+      />
     </div>
   )
 }

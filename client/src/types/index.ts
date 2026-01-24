@@ -52,6 +52,8 @@ export interface Machine {
   buildDate: string | null
   icon: string | null
   notes: string | null
+  autoHourTracking: boolean
+  lastPingAt: string | null
   createdAt: string
   ips?: MachineIP[]
   customFields?: MachineCustomField[]

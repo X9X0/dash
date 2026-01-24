@@ -14,6 +14,7 @@ import {
   Loader2,
   Network,
   X,
+  Timer,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import {
@@ -34,6 +35,8 @@ import {
 import { machineService } from '@/services/machines'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
+import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
+import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
 import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog } from '@/types'
 
 interface MachineDetailData extends Machine {
@@ -86,6 +89,13 @@ export function MachineDetail() {
 
   // Status change state
   const [changingStatus, setChangingStatus] = useState(false)
+
+  // Hour logging state
+  const [showAddHours, setShowAddHours] = useState(false)
+
+  // Service record state
+  const [showServiceRecord, setShowServiceRecord] = useState(false)
+  const [editingServiceRecord, setEditingServiceRecord] = useState<ServiceRecord | null>(null)
 
   useEffect(() => {
     if (id) {
@@ -180,6 +190,38 @@ export function MachineDetail() {
     }
   }
 
+  const handleHoursAdded = (newTotal: number) => {
+    setMachine((prev) => (prev ? { ...prev, hourMeter: newTotal } : null))
+  }
+
+  const handleServiceRecordSaved = (record: ServiceRecord) => {
+    if (editingServiceRecord) {
+      // Update existing record
+      setServiceRecords((prev) =>
+        prev.map((r) => (r.id === record.id ? record : r))
+      )
+    } else {
+      // Add new record at the beginning
+      setServiceRecords((prev) => [record, ...prev])
+    }
+    setEditingServiceRecord(null)
+  }
+
+  const handleEditServiceRecord = (record: ServiceRecord) => {
+    setEditingServiceRecord(record)
+    setShowServiceRecord(true)
+  }
+
+  const handleDeleteServiceRecord = async (recordId: string) => {
+    if (!confirm('Are you sure you want to delete this service record?')) return
+    try {
+      await api.delete(`/service-records/${recordId}`)
+      setServiceRecords((prev) => prev.filter((r) => r.id !== recordId))
+    } catch (error) {
+      console.error('Failed to delete service record:', error)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -263,10 +305,16 @@ export function MachineDetail() {
               </div>
               <div className="flex items-center gap-3">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <div>
+                <div className="flex-1">
                   <p className="text-sm text-muted-foreground">Hour Meter</p>
                   <p className="font-medium">{machine.hourMeter.toLocaleString()} hours</p>
                 </div>
+                {(user?.role === 'admin' || user?.role === 'operator') && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowAddHours(true)}>
+                    <Timer className="h-4 w-4 mr-1" />
+                    Log
+                  </Button>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <Activity className="h-4 w-4 text-muted-foreground" />
@@ -417,14 +465,20 @@ export function MachineDetail() {
 
         {/* Service History */}
         <Card className="lg:col-span-2">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Service History</CardTitle>
+            {(user?.role === 'admin' || user?.role === 'operator') && (
+              <Button variant="ghost" size="sm" onClick={() => setShowServiceRecord(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add Record
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {serviceRecords.length > 0 ? (
               <div className="space-y-3">
-                {serviceRecords.slice(0, 5).map((record) => (
-                  <div key={record.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                {serviceRecords.map((record) => (
+                  <div key={record.id} className="flex items-start gap-3 p-3 rounded-lg border group">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline">{record.type}</Badge>
@@ -433,18 +487,53 @@ export function MachineDetail() {
                         </span>
                       </div>
                       <p className="mt-1">{record.description}</p>
+                      {record.partsUsed && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Parts: {record.partsUsed}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground mt-1">
                         By {record.performedBy}
                       </p>
                     </div>
-                    {record.cost && (
-                      <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {record.cost && (
+                        <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
+                      )}
+                      {(user?.role === 'admin' || user?.role === 'operator') && (
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleEditServiceRecord(record)}
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteServiceRecord(record.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-center text-muted-foreground py-4">No service records</p>
+              <div className="flex flex-col items-center justify-center py-8">
+                <p className="text-muted-foreground mb-2">No service records</p>
+                {(user?.role === 'admin' || user?.role === 'operator') && (
+                  <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add First Record
+                  </Button>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -474,6 +563,29 @@ export function MachineDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Add Hours Dialog */}
+      <AddHoursDialog
+        open={showAddHours}
+        onOpenChange={setShowAddHours}
+        machineId={machine.id}
+        machineName={machine.name}
+        currentHours={machine.hourMeter}
+        onHoursAdded={handleHoursAdded}
+      />
+
+      {/* Add/Edit Service Record Dialog */}
+      <AddServiceRecordDialog
+        open={showServiceRecord}
+        onOpenChange={(open) => {
+          setShowServiceRecord(open)
+          if (!open) setEditingServiceRecord(null)
+        }}
+        machineId={machine.id}
+        machineName={machine.name}
+        editingRecord={editingServiceRecord}
+        onSave={handleServiceRecordSaved}
+      />
     </div>
   )
 }

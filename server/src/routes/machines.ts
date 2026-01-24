@@ -24,6 +24,7 @@ const createMachineSchema = z.object({
   buildDate: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  autoHourTracking: z.boolean().optional(),
 })
 
 const updateMachineSchema = createMachineSchema.partial()

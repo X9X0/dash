@@ -39,17 +39,19 @@ model MachineType {
 }
 
 model Machine {
-  id        String   @id @default(cuid())
-  name      String
-  typeId    String   @map("type_id")
-  model     String
-  location  String
-  status    String   @default("available") // available, in_use, maintenance, offline, error
-  hourMeter Float    @default(0) @map("hour_meter")
-  buildDate DateTime? @map("build_date")
-  icon      String?
-  notes     String?
-  createdAt DateTime @default(now()) @map("created_at")
+  id               String   @id @default(cuid())
+  name             String
+  typeId           String   @map("type_id")
+  model            String
+  location         String
+  status           String   @default("available") // available, in_use, maintenance, offline, error
+  hourMeter        Float    @default(0) @map("hour_meter")
+  buildDate        DateTime? @map("build_date")
+  icon             String?
+  notes            String?
+  autoHourTracking Boolean  @default(false) @map("auto_hour_tracking")
+  lastPingAt       DateTime? @map("last_ping_at")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   type         MachineType          @relation(fields: [typeId], references: [id])
   ips          MachineIP[]

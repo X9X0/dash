@@ -20,6 +20,7 @@ import { serviceRecordsRouter } from './routes/serviceRecords.js'
 import { activityLogsRouter } from './routes/activityLogs.js'
 import { notificationsRouter } from './routes/notifications.js'
 import { setupSocket } from './socket/index.js'
+import { startAutoHourTracking } from './jobs/autoHourTracking.js'
 
 dotenv.config()
 
@@ -74,6 +75,9 @@ const PORT = process.env.PORT || 3001
 
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
+
+  // Start background jobs
+  startAutoHourTracking()
 })
 
 export { io }

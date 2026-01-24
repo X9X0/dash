@@ -13,3 +13,4 @@ export {
   SelectItem,
   SelectSeparator,
 } from './Select'
+export { Switch } from './Switch'

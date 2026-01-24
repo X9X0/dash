@@ -13,6 +13,7 @@ import {
   X,
   Moon,
   Sun,
+  Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './common'
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { label: 'Jobs & Logs', href: '/logs', icon: <ClipboardList className="h-5 w-5" /> },
   { label: 'Maintenance', href: '/maintenance', icon: <Wrench className="h-5 w-5" /> },
   { label: 'Users', href: '/users', icon: <Users className="h-5 w-5" />, roles: ['admin'] },
+  { label: 'Machine Types', href: '/machine-types', icon: <Cpu className="h-5 w-5" />, roles: ['admin'] },
 ]
 
 interface LayoutProps {
@@ -150,6 +152,14 @@ export function Layout({ children }: LayoutProps) {
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/settings')}
+                title="Settings"
+              >
+                <Settings className="h-4 w-4" />
               </Button>
               <Button variant="ghost" size="icon" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" />
