@@ -214,7 +214,24 @@ For production deployment on Linux servers, use the automated deployment script:
 
 #### Linux
 ```bash
+./scripts/update.sh [OPTIONS]
+```
+
+**Options:**
+- `--reset` - Discard all local changes and update (recommended for production servers)
+- `--stash` - Automatically stash changes without prompting
+- `--help` - Show help message
+
+**Examples:**
+```bash
+# Interactive mode (prompts if there are local changes)
 ./scripts/update.sh
+
+# Production mode (discards any local modifications)
+./scripts/update.sh --reset
+
+# Auto-stash mode (preserves changes, restores after update)
+./scripts/update.sh --stash
 ```
 
 This will pull latest changes, install dependencies, run migrations, rebuild, and restart the service.
