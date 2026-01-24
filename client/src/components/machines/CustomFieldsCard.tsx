@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader2, Save, Settings2 } from 'lucide-react'
+import { Loader2, Save, Settings2, ChevronDown, ChevronUp } from 'lucide-react'
 import {
   Button,
   Card,
@@ -32,9 +32,13 @@ export function CustomFieldsCard({ machineId, machineType, canEdit }: CustomFiel
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [expanded, setExpanded] = useState(false)
 
   const fieldsSchema = machineType?.fieldsSchema || {}
   const hasFields = Object.keys(fieldsSchema).length > 0
+  const fieldEntries = Object.entries(fieldsSchema)
+  const INITIAL_DISPLAY_COUNT = 4
+  const hasMoreFields = fieldEntries.length > INITIAL_DISPLAY_COUNT
 
   useEffect(() => {
     fetchCustomFields()
@@ -248,10 +252,29 @@ export function CustomFieldsCard({ machineId, machineType, canEdit }: CustomFiel
         )}
 
         <div className={editing ? 'space-y-4' : 'divide-y'}>
-          {Object.entries(fieldsSchema).map(([fieldName, schema]) =>
-            renderField(fieldName, schema)
+          {(editing || expanded ? fieldEntries : fieldEntries.slice(0, INITIAL_DISPLAY_COUNT)).map(
+            ([fieldName, schema]) => renderField(fieldName, schema)
           )}
         </div>
+
+        {!editing && hasMoreFields && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 text-sm text-primary hover:underline mt-3 w-full justify-center"
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="h-4 w-4" />
+                Show less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-4 w-4" />
+                Show {fieldEntries.length - INITIAL_DISPLAY_COUNT} more
+              </>
+            )}
+          </button>
+        )}
 
         {editing && (
           <div className="flex gap-2 mt-6 pt-4 border-t">
