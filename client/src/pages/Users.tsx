@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
-import { X, Loader2, Pencil, Trash2, Search, Shield, User as UserIcon, Eye } from 'lucide-react'
+import { X, Loader2, Pencil, Trash2, Search, Shield, User as UserIcon, Eye, Plus } from 'lucide-react'
 import {
   Button,
   Card,
@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/common'
 import { useAuthStore } from '@/store/authStore'
-import { userService, UpdateUserData } from '@/services/users'
+import { userService, CreateUserData, UpdateUserData } from '@/services/users'
 import type { User, UserRole } from '@/types'
 
 const roleConfig: Record<UserRole, { label: string; variant: 'default' | 'secondary' | 'outline'; icon: React.ReactNode }> = {
@@ -33,6 +33,7 @@ export function Users() {
   const [searchQuery, setSearchQuery] = useState('')
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [deletingUser, setDeletingUser] = useState<User | null>(null)
+  const [showAddUser, setShowAddUser] = useState(false)
 
   // Only admins can access this page
   if (currentUser?.role !== 'admin') {
@@ -61,6 +62,11 @@ export function Users() {
       user.role.toLowerCase().includes(query)
     )
   })
+
+  const handleUserCreated = (newUser: User) => {
+    setUsers([newUser, ...users])
+    setShowAddUser(false)
+  }
 
   const handleUserUpdated = (updatedUser: User) => {
     setUsers(users.map((u) => (u.id === updatedUser.id ? updatedUser : u)))
@@ -95,6 +101,10 @@ export function Users() {
           <h1 className="text-2xl font-bold">User Management</h1>
           <p className="text-muted-foreground">Manage user accounts and roles</p>
         </div>
+        <Button onClick={() => setShowAddUser(true)}>
+          <Plus className="h-4 w-4" />
+          Add User
+        </Button>
       </div>
 
       {/* Search */}
@@ -188,6 +198,14 @@ export function Users() {
           user={deletingUser}
           onClose={() => setDeletingUser(null)}
           onDelete={handleUserDeleted}
+        />
+      )}
+
+      {/* Add User Dialog */}
+      {showAddUser && (
+        <AddUserDialog
+          onClose={() => setShowAddUser(false)}
+          onSave={handleUserCreated}
         />
       )}
     </div>
@@ -389,5 +407,137 @@ function DeleteUserDialog({ user, onClose, onDelete }: DeleteUserDialogProps) {
         </AlertDialog.Content>
       </AlertDialog.Portal>
     </AlertDialog.Root>
+  )
+}
+
+interface AddUserDialogProps {
+  onClose: () => void
+  onSave: (user: User) => void
+}
+
+function AddUserDialog({ onClose, onSave }: AddUserDialogProps) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [formData, setFormData] = useState<CreateUserData>({
+    name: '',
+    email: '',
+    role: 'viewer',
+    password: '',
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      const newUser = await userService.create(formData)
+      onSave(newUser)
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } }
+      setError(error.response?.data?.error || 'Failed to create user')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-lg">
+          <Dialog.Title className="text-lg font-semibold">Add User</Dialog.Title>
+          <Dialog.Description className="text-sm text-muted-foreground mt-1">
+            Create a new user account.
+          </Dialog.Description>
+
+          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            {error && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="add-name">Name</Label>
+              <Input
+                id="add-name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="John Doe"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="add-email">Email</Label>
+              <Input
+                id="add-email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="john@example.com"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="add-role">Role</Label>
+              <Select
+                value={formData.role}
+                onValueChange={(value) => setFormData({ ...formData, role: value as UserRole })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="operator">Operator</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="add-password">Password</Label>
+              <Input
+                id="add-password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Minimum 6 characters"
+                minLength={6}
+                required
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Create User
+              </Button>
+            </div>
+          </form>
+
+          <Dialog.Close asChild>
+            <button
+              className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </Dialog.Close>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

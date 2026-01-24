@@ -7,11 +7,53 @@ import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth.js'
 const router = Router()
 const prisma = new PrismaClient()
 
+const createUserSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  role: z.enum(['admin', 'operator', 'viewer']),
+  password: z.string().min(6),
+})
+
 const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   role: z.enum(['admin', 'operator', 'viewer']).optional(),
   password: z.string().min(6).optional(),
+})
+
+// Create user (admin only)
+router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const data = createUserSchema.parse(req.body)
+
+    // Check if email already exists
+    const existing = await prisma.user.findUnique({
+      where: { email: data.email },
+    })
+    if (existing) {
+      return res.status(400).json({ error: 'Email already in use' })
+    }
+
+    const passwordHash = await bcrypt.hash(data.password, 10)
+
+    const user = await prisma.user.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        passwordHash,
+      },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    })
+
+    res.status(201).json(user)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    console.error('Create user error:', error)
+    res.status(500).json({ error: 'Failed to create user' })
+  }
 })
 
 // Get current user

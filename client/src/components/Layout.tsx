@@ -96,7 +96,7 @@ export function Layout({ children }: LayoutProps) {
             </Link>
           </div>
 
-          <nav className="flex flex-col gap-1 p-4">
+          <nav className="flex flex-col gap-1 p-4 pb-36 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
             {filteredNavItems.map((item) => (
               <Link
                 key={item.href}
@@ -115,7 +115,7 @@ export function Layout({ children }: LayoutProps) {
             ))}
           </nav>
 
-          <div className="absolute bottom-0 left-0 right-0 border-t p-4">
+          <div className="absolute bottom-0 left-0 right-0 border-t p-4 bg-background">
             <div className="flex items-center gap-3 mb-4">
               <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
                 <span className="text-sm font-medium text-primary">
