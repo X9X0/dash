@@ -103,11 +103,19 @@ log_info "Extracting backup..."
 if [[ "$BACKUP_FILE" == *.zip ]]; then
     # Handle Windows .zip backups
     # Note: unzip automatically converts Windows backslash paths to forward slashes
+    # unzip returns: 0=success, 1=warning (like backslash paths), 2+=error
     if ! command -v unzip &> /dev/null; then
         log_error "unzip command not found. Install with: sudo apt install unzip"
         exit 1
     fi
+    set +e
     unzip -o -q "$BACKUP_FILE" -d "$TEMP_DIR"
+    UNZIP_EXIT=$?
+    set -e
+    if [ $UNZIP_EXIT -gt 1 ]; then
+        log_error "Failed to extract zip file (exit code: $UNZIP_EXIT)"
+        exit 1
+    fi
 
 elif [[ "$BACKUP_FILE" == *.tar.gz ]] || [[ "$BACKUP_FILE" == *.tgz ]]; then
     # Handle Linux .tar.gz backups
