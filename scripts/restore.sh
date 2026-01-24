@@ -102,24 +102,12 @@ log_info "Extracting backup..."
 
 if [[ "$BACKUP_FILE" == *.zip ]]; then
     # Handle Windows .zip backups
+    # Note: unzip automatically converts Windows backslash paths to forward slashes
     if ! command -v unzip &> /dev/null; then
         log_error "unzip command not found. Install with: sudo apt install unzip"
         exit 1
     fi
-    unzip -q "$BACKUP_FILE" -d "$TEMP_DIR"
-
-    # Fix Windows backslash paths - rename any directories/files with backslashes
-    # This handles zip files created on Windows with backslash path separators
-    cd "$TEMP_DIR"
-    for f in *\\*; do
-        if [ -e "$f" ]; then
-            # Convert backslashes to forward slashes
-            new_path="${f//\\//}"
-            mkdir -p "$(dirname "$new_path")"
-            mv "$f" "$new_path" 2>/dev/null || true
-        fi
-    done
-    cd - > /dev/null
+    unzip -o -q "$BACKUP_FILE" -d "$TEMP_DIR"
 
 elif [[ "$BACKUP_FILE" == *.tar.gz ]] || [[ "$BACKUP_FILE" == *.tgz ]]; then
     # Handle Linux .tar.gz backups
