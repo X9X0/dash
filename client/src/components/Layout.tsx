@@ -14,6 +14,7 @@ import {
   Moon,
   Sun,
   Settings,
+  Monitor,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './common'
@@ -56,7 +57,7 @@ export function Layout({ children }: LayoutProps) {
 
   const handleLogout = () => {
     logout()
-    navigate('/login')
+    navigate('/')
   }
 
   const toggleTheme = () => {
@@ -145,6 +146,7 @@ export function Layout({ children }: LayoutProps) {
                 size="icon"
                 className="relative"
                 onClick={() => navigate('/notifications')}
+                title="Notifications"
               >
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
@@ -161,7 +163,20 @@ export function Layout({ children }: LayoutProps) {
               >
                 <Settings className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/')}
+                title="Kiosk Mode"
+              >
+                <Monitor className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                title="Logout"
+              >
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
