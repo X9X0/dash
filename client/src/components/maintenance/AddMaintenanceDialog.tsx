@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Loader2 } from 'lucide-react'
-import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
+import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { maintenanceService } from '@/services/maintenance'
 import type { Machine, MaintenanceRequest, MaintenanceType, MaintenancePriority } from '@/types'
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Search, Download, Filter } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
+import { Button, Card, CardContent, Input, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { machineService } from '@/services/machines'
 import api from '@/services/api'
 import type { ActivityLog, Job, Machine, JobStatus } from '@/types'
@@ -22,7 +22,7 @@ export function Logs() {
   const [searchQuery, setSearchQuery] = useState('')
   const [machineFilter, setMachineFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchData = async () => {

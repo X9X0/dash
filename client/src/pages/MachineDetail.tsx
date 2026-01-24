@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Edit,
@@ -34,7 +34,7 @@ import {
 import { machineService } from '@/services/machines'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
-import type { Machine, MachineStatus, MachineIP, ServiceRecord, MachineStatusLog } from '@/types'
+import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog } from '@/types'
 
 interface MachineDetailData extends Machine {
   statusLogs?: MachineStatusLog[]

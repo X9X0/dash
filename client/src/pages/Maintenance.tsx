@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Filter, AlertTriangle } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
+import { Button, Card, CardContent, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { maintenanceService } from '@/services/maintenance'
 import { machineService } from '@/services/machines'
 import { useAuthStore } from '@/store/authStore'
@@ -35,7 +35,7 @@ export function Maintenance() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchData = async () => {

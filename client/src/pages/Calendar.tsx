@@ -28,7 +28,7 @@ export function Calendar() {
   const [machines, setMachines] = useState<Machine[]>([])
   const [machineFilter, setMachineFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchData = async () => {

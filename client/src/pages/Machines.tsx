@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Plus, Search, Filter } from 'lucide-react'
-import { Button, Card, CardContent, Input, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
+import { Button, Card, CardContent, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
 import { MachineCard } from '@/components/machines/MachineCard'
 import { AddMachineDialog } from '@/components/machines/AddMachineDialog'
-import type { MachineStatus } from '@/types'
 
 export function Machines() {
   const { machines, setMachines, machineTypes, setMachineTypes, setLoading } = useMachineStore()

@@ -1,30 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Activity, Wifi, WifiOff } from 'lucide-react'
+import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { machineService } from '@/services/machines'
 import { reservationService } from '@/services/reservations'
 import { maintenanceService } from '@/services/maintenance'
 import api from '@/services/api'
-import type { Reservation, MaintenanceRequest, MachineStatus } from '@/types'
+import type { Reservation, MaintenanceRequest } from '@/types'
 import { format, isToday } from 'date-fns'
-
-const statusColors: Record<MachineStatus, string> = {
-  available: 'bg-green-500',
-  in_use: 'bg-blue-500',
-  maintenance: 'bg-yellow-500',
-  offline: 'bg-gray-500',
-  error: 'bg-red-500',
-}
-
-const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive'> = {
-  available: 'success',
-  in_use: 'default',
-  maintenance: 'warning',
-  offline: 'secondary',
-  error: 'destructive',
-}
 
 interface PingStatus {
   machineId: string

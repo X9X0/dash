@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, FlaskConical } from 'lucide-react'
+import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot } from 'lucide-react'
 import { format } from 'date-fns'
 import api from '@/services/api'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
-import type { Machine, MachineStatus } from '@/types'
+import type { Machine } from '@/types'
 
 interface PingStatus {
   machineId: string

@@ -8,7 +8,6 @@ import {
   Wrench,
   Bell,
   Users,
-  Settings,
   LogOut,
   Menu,
   X,
