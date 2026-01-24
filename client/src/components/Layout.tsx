@@ -29,7 +29,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/', icon: <LayoutDashboard className="h-5 w-5" /> },
+  { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
   { label: 'Calendar', href: '/calendar', icon: <Calendar className="h-5 w-5" /> },
   { label: 'Machines', href: '/machines', icon: <Cpu className="h-5 w-5" /> },
   { label: 'Jobs & Logs', href: '/logs', icon: <ClipboardList className="h-5 w-5" /> },
@@ -90,7 +90,7 @@ export function Layout({ children }: LayoutProps) {
           )}
         >
           <div className="flex h-14 items-center border-b px-6">
-            <Link to="/" className="flex items-center gap-2 font-semibold">
+            <Link to="/dashboard" className="flex items-center gap-2 font-semibold">
               <Cpu className="h-6 w-6 text-primary" />
               <span>Dash</span>
             </Link>

@@ -33,7 +33,7 @@ export function MachineTypes() {
   const [editingType, setEditingType] = useState<MachineType | null>(null)
 
   if (user?.role !== 'admin') {
-    return <Navigate to="/" />
+    return <Navigate to="/dashboard" />
   }
 
   useEffect(() => {

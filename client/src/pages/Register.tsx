@@ -34,7 +34,7 @@ export function Register() {
     try {
       const { user, token } = await authService.register({ email, password, name })
       setAuth(user, token)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: string } } }
       setError(error.response?.data?.error || 'Failed to register')

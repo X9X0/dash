@@ -12,7 +12,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
-  return !isAuthenticated ? <>{children}</> : <Navigate to="/" />
+  return !isAuthenticated ? <>{children}</> : <Navigate to="/dashboard" />
 }
 
 function App() {
@@ -48,8 +48,9 @@ function App() {
           </PublicRoute>
         }
       />
+      <Route path="/" element={<Kiosk />} />
       <Route
-        path="/"
+        path="/dashboard"
         element={
           <PrivateRoute>
             <Layout>
@@ -158,7 +159,7 @@ function App() {
           </PrivateRoute>
         }
       />
-      <Route path="/kiosk" element={<Kiosk />} />
+      <Route path="/kiosk" element={<Navigate to="/" />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   )

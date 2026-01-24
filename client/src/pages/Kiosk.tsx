@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn } from 'lucide-react'
 import { format } from 'date-fns'
 import api from '@/services/api'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
+import { useAuthStore } from '@/store/authStore'
 import type { Machine } from '@/types'
 
 interface PingStatus {
@@ -17,6 +19,8 @@ function getMachineIcon(category?: string) {
 }
 
 export function Kiosk() {
+  const navigate = useNavigate()
+  const { isAuthenticated } = useAuthStore()
   const [machines, setMachines] = useState<Machine[]>([])
   const [pingStatus, setPingStatus] = useState<Record<string, boolean | null>>({})
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
@@ -217,18 +221,7 @@ export function Kiosk() {
                     <div className={`p-2 rounded-lg bg-muted ${getStatusTextColor(machine)}`}>
                       {getMachineIcon(machine.type?.category)}
                     </div>
-                    <div className="relative">
-                      <div className={`h-5 w-5 rounded-full ${getIndicatorColor(machine)}`} />
-                      {hasNetworkConfig && (
-                        <div className="absolute -bottom-1 -right-1">
-                          {isReachable ? (
-                            <Wifi className="h-3 w-3 text-green-600" />
-                          ) : (
-                            <WifiOff className="h-3 w-3 text-red-500" />
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <div className={`h-5 w-5 rounded-full ${getIndicatorColor(machine)}`} />
                   </div>
                   <h3 className="font-semibold truncate" title={machine.name}>
                     {machine.name}
@@ -239,6 +232,26 @@ export function Kiosk() {
                   <p className={`text-sm font-medium mt-2 ${getStatusTextColor(machine)}`}>
                     {getStatusText(machine)}
                   </p>
+                  {/* Network Status - Prominent indicator */}
+                  {hasNetworkConfig && (
+                    <div className={`flex items-center gap-2 mt-2 px-2 py-1 rounded-md text-xs font-semibold ${
+                      isReachable
+                        ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                        : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                    }`}>
+                      {isReachable ? (
+                        <>
+                          <Wifi className="h-3.5 w-3.5" />
+                          <span>Online</span>
+                        </>
+                      ) : (
+                        <>
+                          <WifiOff className="h-3.5 w-3.5" />
+                          <span>Offline</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -254,8 +267,19 @@ export function Kiosk() {
       )}
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur border-t p-2 text-center text-xs text-muted-foreground">
-        Auto-refreshes every 15 seconds
+      <footer className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur border-t p-2">
+        <div className="flex items-center justify-between px-4">
+          <span className="text-xs text-muted-foreground">
+            Auto-refreshes every 15 seconds
+          </span>
+          <button
+            onClick={() => navigate(isAuthenticated ? '/dashboard' : '/login')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+          >
+            <LogIn className="h-3.5 w-3.5" />
+            {isAuthenticated ? 'Dashboard' : 'Login'}
+          </button>
+        </div>
       </footer>
     </div>
   )

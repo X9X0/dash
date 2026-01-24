@@ -37,7 +37,7 @@ export function Users() {
 
   // Only admins can access this page
   if (currentUser?.role !== 'admin') {
-    return <Navigate to="/" />
+    return <Navigate to="/dashboard" />
   }
 
   useEffect(() => {

@@ -21,7 +21,7 @@ export function Login() {
     try {
       const { user, token } = await authService.login({ email, password })
       setAuth(user, token)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: string } } }
       setError(error.response?.data?.error || 'Failed to login')
