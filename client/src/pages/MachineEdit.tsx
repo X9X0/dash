@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Navigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Save, Clock } from 'lucide-react'
+import { ArrowLeft, Loader2, Save, Clock, Network, Plus, X } from 'lucide-react'
 import {
   Button,
   Card,
@@ -19,7 +19,8 @@ import {
 import { machineService } from '@/services/machines'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
-import type { Machine, MachineType, MachineStatus } from '@/types'
+import api from '@/services/api'
+import type { Machine, MachineType, MachineStatus, MachineIP } from '@/types'
 
 const categoryOrder: Record<string, number> = {
   'Biped Humanoid': 1,
@@ -54,6 +55,12 @@ export function MachineEdit() {
     autoHourTracking: false,
   })
 
+  // IP management state
+  const [ips, setIps] = useState<MachineIP[]>([])
+  const [showAddIP, setShowAddIP] = useState(false)
+  const [newIP, setNewIP] = useState({ label: '', ipAddress: '' })
+  const [addingIP, setAddingIP] = useState(false)
+
   // Only admins can access this page
   if (user?.role !== 'admin') {
     return <Navigate to={`/machines/${id}`} />
@@ -71,6 +78,7 @@ export function MachineEdit() {
         ])
 
         setMachine(machineData)
+        setIps(machineData.ips || [])
         if (machineTypes.length === 0) {
           setMachineTypes(typesData as MachineType[])
         }
@@ -129,6 +137,30 @@ export function MachineEdit() {
       setError(error.response?.data?.error || 'Failed to update machine')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleAddIP = async () => {
+    if (!newIP.label || !newIP.ipAddress || !id) return
+    setAddingIP(true)
+    try {
+      const { data } = await api.post<MachineIP>(`/machines/${id}/ips`, newIP)
+      setIps([...ips, data])
+      setNewIP({ label: '', ipAddress: '' })
+      setShowAddIP(false)
+    } catch (error) {
+      console.error('Failed to add IP:', error)
+    } finally {
+      setAddingIP(false)
+    }
+  }
+
+  const handleDeleteIP = async (ipId: string) => {
+    try {
+      await api.delete(`/machines/${id}/ips/${ipId}`)
+      setIps(ips.filter((ip) => ip.id !== ipId))
+    } catch (error) {
+      console.error('Failed to delete IP:', error)
     }
   }
 
@@ -277,6 +309,86 @@ export function MachineEdit() {
               </div>
             </div>
 
+            {/* Network / IP Addresses Section */}
+            <div className="border-t pt-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Network className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-base font-medium">IP Addresses</Label>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddIP(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add IP
+                </Button>
+              </div>
+
+              {showAddIP && (
+                <div className="mb-4 p-3 border rounded-lg space-y-3 bg-muted/30">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Label</Label>
+                      <Input
+                        placeholder="e.g., Main Controller"
+                        value={newIP.label}
+                        onChange={(e) => setNewIP({ ...newIP, label: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>IP Address / Hostname</Label>
+                      <Input
+                        placeholder="e.g., 192.168.1.100"
+                        value={newIP.ipAddress}
+                        onChange={(e) => setNewIP({ ...newIP, ipAddress: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" onClick={handleAddIP} disabled={addingIP}>
+                      {addingIP && <Loader2 className="h-3 w-3 animate-spin" />}
+                      Add
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setShowAddIP(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {ips.length > 0 ? (
+                <div className="space-y-2">
+                  {ips.map((ip) => (
+                    <div
+                      key={ip.id}
+                      className="flex items-center justify-between p-3 rounded-lg border"
+                    >
+                      <div>
+                        <p className="font-medium">{ip.label}</p>
+                        <p className="text-sm text-muted-foreground font-mono">{ip.ipAddress}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteIP(ip.id)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4 border rounded-lg">
+                  No IP addresses configured
+                </p>
+              )}
+            </div>
+
             {/* Auto Hour Tracking Section */}
             <div className="border-t pt-6">
               <div className="flex items-center justify-between">
@@ -300,10 +412,9 @@ export function MachineEdit() {
                   }
                 />
               </div>
-              {formData.autoHourTracking && (!machine?.ips || machine.ips.length === 0) && (
+              {formData.autoHourTracking && ips.length === 0 && (
                 <div className="mt-3 rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-500">
-                  This machine has no IP addresses configured. Add IP addresses on the machine
-                  detail page to enable auto hour tracking.
+                  Add at least one IP address above for auto hour tracking to work.
                 </div>
               )}
             </div>
