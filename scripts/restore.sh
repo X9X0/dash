@@ -30,14 +30,17 @@ else
 fi
 
 usage() {
-    echo "Usage: $0 <backup_file.tar.gz> [--no-config]"
+    echo "Usage: $0 <backup_file> [--no-config]"
+    echo ""
+    echo "Supports both .tar.gz (Linux) and .zip (Windows) backup formats."
     echo ""
     echo "Options:"
     echo "  --no-config    Don't restore .env configuration files"
     echo ""
     echo "Examples:"
     echo "  $0 dash_backup_20240123_120000.tar.gz"
-    echo "  $0 /path/to/dash_backup_20240123_120000.tar.gz --no-config"
+    echo "  $0 dash_backup_20240123_120000.zip"
+    echo "  $0 /path/to/backup.tar.gz --no-config"
     exit 1
 }
 
@@ -94,16 +97,35 @@ log_info "Restoring from: $BACKUP_FILE"
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
-# Extract backup
+# Extract backup based on file type
 log_info "Extracting backup..."
-tar -xzf "$BACKUP_FILE" -C "$TEMP_DIR"
+
+if [[ "$BACKUP_FILE" == *.zip ]]; then
+    # Handle Windows .zip backups
+    if ! command -v unzip &> /dev/null; then
+        log_error "unzip command not found. Install with: sudo apt install unzip"
+        exit 1
+    fi
+    unzip -q "$BACKUP_FILE" -d "$TEMP_DIR"
+elif [[ "$BACKUP_FILE" == *.tar.gz ]] || [[ "$BACKUP_FILE" == *.tgz ]]; then
+    # Handle Linux .tar.gz backups
+    tar -xzf "$BACKUP_FILE" -C "$TEMP_DIR"
+else
+    log_error "Unsupported backup format. Use .tar.gz or .zip"
+    exit 1
+fi
 
 # Find the backup content directory
-BACKUP_CONTENT_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "dash_backup_*" | head -n1)
+BACKUP_CONTENT_DIR=$(find "$TEMP_DIR" -maxdepth 2 -type d -name "dash_backup_*" | head -n1)
 
 if [ -z "$BACKUP_CONTENT_DIR" ]; then
-    log_error "Invalid backup format - no dash_backup_* directory found"
-    exit 1
+    # Try finding database directly (flat structure from some Windows backups)
+    if [ -f "$TEMP_DIR/dash.db" ]; then
+        BACKUP_CONTENT_DIR="$TEMP_DIR"
+    else
+        log_error "Invalid backup format - no dash_backup_* directory or dash.db found"
+        exit 1
+    fi
 fi
 
 log_success "Backup extracted"
@@ -203,10 +225,10 @@ if [ -f "$PROJECT_DIR/server/.env" ]; then
     fi
 fi
 
-# Run migrations to ensure schema is up to date
-log_info "Running database migrations..."
+# Ensure database schema is up to date
+log_info "Verifying database schema..."
 cd "$PROJECT_DIR/server"
-npx prisma migrate deploy || log_warn "Migration failed or no migrations to run"
+npx prisma db push || log_warn "Schema update failed - database may already be up to date"
 
 # Restart service if it was running
 if [ "$SERVICE_WAS_RUNNING" -eq 1 ]; then
