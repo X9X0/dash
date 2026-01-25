@@ -41,11 +41,8 @@ function getMachineIcon(type?: { category?: string }) {
 export function MachineCard({ machine, pingStatus }: MachineCardProps) {
   const isReachable = pingStatus?.reachable
   const hasNetworkConfig = pingStatus !== undefined
-
-  // Build network info string
-  const networkInfo = pingStatus?.resolvedIP || pingStatus?.resolvedHostname
-    ? `${pingStatus.resolvedHostname || ''} ${pingStatus.resolvedIP ? `(${pingStatus.resolvedIP})` : ''}`.trim()
-    : null
+  const resolvedHostname = pingStatus?.resolvedHostname
+  const resolvedIP = pingStatus?.resolvedIP
 
   return (
     <Link to={`/machines/${machine.id}`}>
@@ -76,12 +73,18 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
               <span>{machine.hourMeter.toLocaleString()} hours</span>
             </div>
             {/* Network Info - IP/Hostname */}
-            {networkInfo && (
-              <div
-                className="text-xs text-muted-foreground font-mono truncate"
-                title={networkInfo}
-              >
-                {networkInfo}
+            {(resolvedHostname || resolvedIP) && (
+              <div className="text-xs font-mono truncate space-y-0.5">
+                {resolvedHostname && (
+                  <p className="text-blue-600 dark:text-blue-400 truncate" title={resolvedHostname}>
+                    {resolvedHostname}
+                  </p>
+                )}
+                {resolvedIP && (
+                  <p className="text-green-600 dark:text-green-400 truncate" title={resolvedIP}>
+                    {resolvedIP}
+                  </p>
+                )}
               </div>
             )}
           </div>

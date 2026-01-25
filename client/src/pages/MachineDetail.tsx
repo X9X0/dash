@@ -454,20 +454,21 @@ export function MachineDetail() {
                         )}
                         <div>
                           <p className="text-sm font-medium">{ip.label}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{ip.ipAddress}</p>
-                          {ipPingResult && (resolvedIP || resolvedHostname) && (
+                          {ipPingResult && (resolvedIP || resolvedHostname) ? (
                             <div className="text-xs font-mono mt-0.5 space-y-0.5">
-                              {resolvedHostname && resolvedHostname !== ip.ipAddress && (
+                              {resolvedHostname && (
                                 <p className="text-blue-600 dark:text-blue-400">
-                                  Hostname: {resolvedHostname}
+                                  {resolvedHostname}
                                 </p>
                               )}
-                              {resolvedIP && resolvedIP !== ip.ipAddress && (
+                              {resolvedIP && (
                                 <p className="text-green-600 dark:text-green-400">
-                                  IP: {resolvedIP}
+                                  {resolvedIP}
                                 </p>
                               )}
                             </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground font-mono">{ip.ipAddress}</p>
                           )}
                         </div>
                       </div>

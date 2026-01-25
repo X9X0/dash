@@ -250,10 +250,17 @@ export function Kiosk() {
                   </p>
                   {/* Network Info - IP/Hostname */}
                   {networkInfo && (networkInfo.ip || networkInfo.hostname) && (
-                    <div className="mt-2 text-xs text-muted-foreground font-mono truncate" title={`${networkInfo.hostname || ''} ${networkInfo.ip ? `(${networkInfo.ip})` : ''}`}>
-                      {networkInfo.hostname && <span>{networkInfo.hostname}</span>}
-                      {networkInfo.hostname && networkInfo.ip && <br />}
-                      {networkInfo.ip && <span className="opacity-75">{networkInfo.ip}</span>}
+                    <div className="mt-2 text-xs font-mono">
+                      {networkInfo.hostname && (
+                        <p className="text-blue-600 dark:text-blue-400 truncate" title={networkInfo.hostname}>
+                          {networkInfo.hostname}
+                        </p>
+                      )}
+                      {networkInfo.ip && (
+                        <p className="text-green-600 dark:text-green-400 truncate" title={networkInfo.ip}>
+                          {networkInfo.ip}
+                        </p>
+                      )}
                     </div>
                   )}
                   {/* Network Status - Prominent indicator */}

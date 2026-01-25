@@ -187,9 +187,8 @@ export function Dashboard() {
                   return machine.status.replace('_', ' ')
                 }
 
-                const networkInfo = status?.resolvedIP || status?.resolvedHostname
-                  ? `${status.resolvedHostname || ''} ${status.resolvedIP ? `(${status.resolvedIP})` : ''}`.trim()
-                  : null
+                const resolvedHostname = status?.resolvedHostname
+                const resolvedIP = status?.resolvedIP
 
                 return (
                   <Link
@@ -212,10 +211,19 @@ export function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{machine.name}</p>
                       <p className="text-xs text-muted-foreground">{machine.location}</p>
-                      {networkInfo && (
-                        <p className="text-[10px] text-muted-foreground font-mono truncate" title={networkInfo}>
-                          {networkInfo}
-                        </p>
+                      {(resolvedHostname || resolvedIP) && (
+                        <div className="text-[10px] font-mono">
+                          {resolvedHostname && (
+                            <p className="text-blue-600 dark:text-blue-400 truncate" title={resolvedHostname}>
+                              {resolvedHostname}
+                            </p>
+                          )}
+                          {resolvedIP && (
+                            <p className="text-green-600 dark:text-green-400 truncate" title={resolvedIP}>
+                              {resolvedIP}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="text-right">
