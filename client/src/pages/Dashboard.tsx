@@ -13,13 +13,15 @@ import { format, isToday } from 'date-fns'
 interface PingStatus {
   machineId: string
   reachable: boolean | null
+  resolvedIP: string | null
+  resolvedHostname: string | null
 }
 
 export function Dashboard() {
   const { machines, setMachines, setLoading } = useMachineStore()
   const [todayReservations, setTodayReservations] = useState<Reservation[]>([])
   const [pendingMaintenance, setPendingMaintenance] = useState<MaintenanceRequest[]>([])
-  const [pingStatus, setPingStatus] = useState<Record<string, boolean | null>>({})
+  const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
 
   useEffect(() => {
     const fetchData = async () => {
@@ -39,9 +41,9 @@ export function Dashboard() {
         // Fetch ping status for all machines
         try {
           const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
-          const statusMap: Record<string, boolean | null> = {}
+          const statusMap: Record<string, PingStatus> = {}
           pingResults.forEach((result) => {
-            statusMap[result.machineId] = result.reachable
+            statusMap[result.machineId] = result
           })
           setPingStatus(statusMap)
         } catch (pingError) {
@@ -59,9 +61,9 @@ export function Dashboard() {
     const pingInterval = setInterval(async () => {
       try {
         const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
-        const statusMap: Record<string, boolean | null> = {}
+        const statusMap: Record<string, PingStatus> = {}
         pingResults.forEach((result) => {
-          statusMap[result.machineId] = result.reachable
+          statusMap[result.machineId] = result
         })
         setPingStatus(statusMap)
       } catch (error) {
@@ -74,7 +76,7 @@ export function Dashboard() {
 
   // Count machines that are available AND reachable
   const readyCount = machines.filter((m) =>
-    m.status === 'available' && pingStatus[m.id] === true
+    m.status === 'available' && pingStatus[m.id]?.reachable === true
   ).length
 
   // Define category order for sorting
@@ -160,8 +162,9 @@ export function Dashboard() {
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2">
               {sortedMachines.slice(0, 6).map((machine) => {
-                const isReachable = pingStatus[machine.id]
-                const hasNetworkConfig = isReachable !== null && isReachable !== undefined
+                const status = pingStatus[machine.id]
+                const isReachable = status?.reachable
+                const hasNetworkConfig = status !== undefined
 
                 // Green only if available AND reachable
                 // Yellow if in_use/maintenance, or available but unreachable
@@ -184,6 +187,10 @@ export function Dashboard() {
                   return machine.status.replace('_', ' ')
                 }
 
+                const networkInfo = status?.resolvedIP || status?.resolvedHostname
+                  ? `${status.resolvedHostname || ''} ${status.resolvedIP ? `(${status.resolvedIP})` : ''}`.trim()
+                  : null
+
                 return (
                   <Link
                     key={machine.id}
@@ -205,6 +212,11 @@ export function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{machine.name}</p>
                       <p className="text-xs text-muted-foreground">{machine.location}</p>
+                      {networkInfo && (
+                        <p className="text-[10px] text-muted-foreground font-mono truncate" title={networkInfo}>
+                          {networkInfo}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className={`text-xs font-medium capitalize ${

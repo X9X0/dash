@@ -10,6 +10,8 @@ import type { Machine } from '@/types'
 interface PingStatus {
   machineId: string
   reachable: boolean | null
+  resolvedIP: string | null
+  resolvedHostname: string | null
 }
 
 function getMachineIcon(category?: string) {
@@ -22,7 +24,7 @@ export function Kiosk() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuthStore()
   const [machines, setMachines] = useState<Machine[]>([])
-  const [pingStatus, setPingStatus] = useState<Record<string, boolean | null>>({})
+  const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
   const { theme, setTheme } = useThemeStore()
@@ -40,9 +42,9 @@ export function Kiosk() {
       // Fetch ping status
       try {
         const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all/public')
-        const statusMap: Record<string, boolean | null> = {}
+        const statusMap: Record<string, PingStatus> = {}
         pingResults.forEach((result) => {
-          statusMap[result.machineId] = result.reachable
+          statusMap[result.machineId] = result
         })
         setPingStatus(statusMap)
       } catch {
@@ -70,7 +72,8 @@ export function Kiosk() {
   }
 
   const getIndicatorColor = (machine: Machine) => {
-    const isReachable = pingStatus[machine.id]
+    const status = pingStatus[machine.id]
+    const isReachable = status?.reachable
     if (machine.status === 'available' && isReachable === true) return 'bg-green-500'
     if (machine.status === 'error') return 'bg-red-500'
     if (machine.status === 'offline') return 'bg-gray-500'
@@ -81,8 +84,9 @@ export function Kiosk() {
   }
 
   const getStatusText = (machine: Machine) => {
-    const isReachable = pingStatus[machine.id]
-    const hasNetworkConfig = isReachable !== null && isReachable !== undefined
+    const status = pingStatus[machine.id]
+    const isReachable = status?.reachable
+    const hasNetworkConfig = status !== undefined
 
     if (machine.status === 'available' && isReachable === true) return 'Ready'
     if (machine.status === 'available' && isReachable === false) return 'Unreachable'
@@ -95,13 +99,23 @@ export function Kiosk() {
   }
 
   const getStatusTextColor = (machine: Machine) => {
-    const isReachable = pingStatus[machine.id]
+    const status = pingStatus[machine.id]
+    const isReachable = status?.reachable
     if (machine.status === 'available' && isReachable === true) return 'text-green-500'
     if (machine.status === 'error') return 'text-red-500'
     if (machine.status === 'available' && isReachable === false) return 'text-yellow-500'
     if (machine.status === 'in_use') return 'text-blue-500'
     if (machine.status === 'maintenance') return 'text-yellow-500'
     return 'text-gray-500'
+  }
+
+  const getNetworkInfo = (machine: Machine) => {
+    const status = pingStatus[machine.id]
+    if (!status) return null
+    return {
+      ip: status.resolvedIP,
+      hostname: status.resolvedHostname,
+    }
   }
 
   // Define category order for sorting
@@ -131,7 +145,7 @@ export function Kiosk() {
   })
 
   const readyCount = machines.filter((m) =>
-    m.status === 'available' && pingStatus[m.id] === true
+    m.status === 'available' && pingStatus[m.id]?.reachable === true
   ).length
 
   if (loading) {
@@ -209,8 +223,10 @@ export function Kiosk() {
           <h2 className="text-xl font-semibold mb-4 text-muted-foreground">{typeName}</h2>
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {machinesByType[typeName].map((machine) => {
-              const isReachable = pingStatus[machine.id]
-              const hasNetworkConfig = isReachable !== null && isReachable !== undefined
+              const status = pingStatus[machine.id]
+              const isReachable = status?.reachable
+              const hasNetworkConfig = status !== undefined
+              const networkInfo = getNetworkInfo(machine)
 
               return (
                 <div
@@ -232,6 +248,14 @@ export function Kiosk() {
                   <p className={`text-sm font-medium mt-2 ${getStatusTextColor(machine)}`}>
                     {getStatusText(machine)}
                   </p>
+                  {/* Network Info - IP/Hostname */}
+                  {networkInfo && (networkInfo.ip || networkInfo.hostname) && (
+                    <div className="mt-2 text-xs text-muted-foreground font-mono truncate" title={`${networkInfo.hostname || ''} ${networkInfo.ip ? `(${networkInfo.ip})` : ''}`}>
+                      {networkInfo.hostname && <span>{networkInfo.hostname}</span>}
+                      {networkInfo.hostname && networkInfo.ip && <br />}
+                      {networkInfo.ip && <span className="opacity-75">{networkInfo.ip}</span>}
+                    </div>
+                  )}
                   {/* Network Status - Prominent indicator */}
                   {hasNetworkConfig && (
                     <div className={`flex items-center gap-2 mt-2 px-2 py-1 rounded-md text-xs font-semibold ${

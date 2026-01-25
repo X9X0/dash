@@ -52,6 +52,8 @@ interface PingResult {
     id: string
     label: string
     ipAddress: string
+    resolvedIP: string | null
+    resolvedHostname: string | null
     reachable: boolean
   }>
   reason?: string
@@ -433,6 +435,8 @@ export function MachineDetail() {
               <div className="space-y-2">
                 {machine.ips.map((ip) => {
                   const ipPingResult = pingResult?.ips?.find((p) => p.id === ip.id)
+                  const resolvedIP = ipPingResult?.resolvedIP
+                  const resolvedHostname = ipPingResult?.resolvedHostname
                   return (
                     <div
                       key={ip.id}
@@ -451,18 +455,36 @@ export function MachineDetail() {
                         <div>
                           <p className="text-sm font-medium">{ip.label}</p>
                           <p className="text-xs text-muted-foreground font-mono">{ip.ipAddress}</p>
+                          {ipPingResult && (resolvedIP || resolvedHostname) && (
+                            <div className="text-xs text-muted-foreground/70 font-mono">
+                              {resolvedHostname && resolvedHostname !== ip.ipAddress && (
+                                <span>{resolvedHostname}</span>
+                              )}
+                              {resolvedHostname && resolvedIP && resolvedHostname !== ip.ipAddress && ' → '}
+                              {resolvedIP && resolvedIP !== ip.ipAddress && (
+                                <span>{resolvedIP}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                      {isAdmin && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => handleDeleteIP(ip.id)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {ipPingResult && (
+                          <span className={`text-xs font-medium ${ipPingResult.reachable ? 'text-green-500' : 'text-red-500'}`}>
+                            {ipPingResult.reachable ? 'Online' : 'Offline'}
+                          </span>
+                        )}
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => handleDeleteIP(ip.id)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )
                 })}

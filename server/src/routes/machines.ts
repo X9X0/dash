@@ -3,9 +3,44 @@ import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import dns from 'dns'
 import { authenticate, requireAdmin, requireOperator, AuthRequest } from '../middleware/auth.js'
 
 const execAsync = promisify(exec)
+const dnsLookup = promisify(dns.lookup)
+const dnsReverse = promisify(dns.reverse)
+
+// Check if a string looks like an IP address
+function isIPAddress(str: string): boolean {
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/
+  const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/
+  return ipv4Regex.test(str) || ipv6Regex.test(str)
+}
+
+// Resolve hostname to IP or do reverse lookup
+async function resolveAddress(address: string): Promise<{ resolvedIP: string | null; resolvedHostname: string | null }> {
+  try {
+    if (isIPAddress(address)) {
+      // It's an IP, try reverse DNS lookup
+      try {
+        const hostnames = await dnsReverse(address)
+        return { resolvedIP: address, resolvedHostname: hostnames[0] || null }
+      } catch {
+        return { resolvedIP: address, resolvedHostname: null }
+      }
+    } else {
+      // It's a hostname, resolve to IP
+      try {
+        const result = await dnsLookup(address)
+        return { resolvedIP: result.address, resolvedHostname: address }
+      } catch {
+        return { resolvedIP: null, resolvedHostname: address }
+      }
+    }
+  } catch {
+    return { resolvedIP: null, resolvedHostname: null }
+  }
+}
 const router = Router()
 const prisma = new PrismaClient()
 
@@ -466,20 +501,38 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
       return res.json({ reachable: false, reason: 'No IP addresses configured' })
     }
 
-    // Ping each IP and return results
+    // Ping each IP and return results with DNS resolution
     const pingResults = await Promise.all(
       machine.ips.map(async (ip: { id: string; label: string; ipAddress: string }) => {
+        // Resolve address (hostname to IP or reverse DNS)
+        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
+        const pingTarget = resolvedIP || ip.ipAddress
+
         try {
           // Use platform-appropriate ping command
           const isWindows = process.platform === 'win32'
           const pingCmd = isWindows
-            ? `ping -n 1 -w 2000 ${ip.ipAddress}`
-            : `ping -c 1 -W 2 ${ip.ipAddress}`
+            ? `ping -n 1 -w 2000 ${pingTarget}`
+            : `ping -c 1 -W 2 ${pingTarget}`
 
           await execAsync(pingCmd, { timeout: 5000 })
-          return { id: ip.id, label: ip.label, ipAddress: ip.ipAddress, reachable: true, latency: null }
+          return {
+            id: ip.id,
+            label: ip.label,
+            ipAddress: ip.ipAddress,
+            resolvedIP,
+            resolvedHostname,
+            reachable: true,
+          }
         } catch {
-          return { id: ip.id, label: ip.label, ipAddress: ip.ipAddress, reachable: false, latency: null }
+          return {
+            id: ip.id,
+            label: ip.label,
+            ipAddress: ip.ipAddress,
+            resolvedIP,
+            resolvedHostname,
+            reachable: false,
+          }
         }
       })
     )
@@ -506,21 +559,24 @@ router.get('/ping/all', authenticate, async (req: AuthRequest, res) => {
     const results = await Promise.all(
       machines.map(async (machine) => {
         if (!machine.ips || machine.ips.length === 0) {
-          return { machineId: machine.id, reachable: null }
+          return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
         }
 
         // Ping first IP only for batch check
         const ip = machine.ips[0]
+        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
+        const pingTarget = resolvedIP || ip.ipAddress
+
         try {
           const isWindows = process.platform === 'win32'
           const pingCmd = isWindows
-            ? `ping -n 1 -w 1000 ${ip.ipAddress}`
-            : `ping -c 1 -W 1 ${ip.ipAddress}`
+            ? `ping -n 1 -w 1000 ${pingTarget}`
+            : `ping -c 1 -W 1 ${pingTarget}`
 
           await execAsync(pingCmd, { timeout: 3000 })
-          return { machineId: machine.id, reachable: true }
+          return { machineId: machine.id, reachable: true, resolvedIP, resolvedHostname }
         } catch {
-          return { machineId: machine.id, reachable: false }
+          return { machineId: machine.id, reachable: false, resolvedIP, resolvedHostname }
         }
       })
     )
@@ -542,20 +598,23 @@ router.get('/ping/all/public', async (req, res) => {
     const results = await Promise.all(
       machines.map(async (machine) => {
         if (!machine.ips || machine.ips.length === 0) {
-          return { machineId: machine.id, reachable: null }
+          return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
         }
 
         const ip = machine.ips[0]
+        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
+        const pingTarget = resolvedIP || ip.ipAddress
+
         try {
           const isWindows = process.platform === 'win32'
           const pingCmd = isWindows
-            ? `ping -n 1 -w 1000 ${ip.ipAddress}`
-            : `ping -c 1 -W 1 ${ip.ipAddress}`
+            ? `ping -n 1 -w 1000 ${pingTarget}`
+            : `ping -c 1 -W 1 ${pingTarget}`
 
           await execAsync(pingCmd, { timeout: 3000 })
-          return { machineId: machine.id, reachable: true }
+          return { machineId: machine.id, reachable: true, resolvedIP, resolvedHostname }
         } catch {
-          return { machineId: machine.id, reachable: false }
+          return { machineId: machine.id, reachable: false, resolvedIP, resolvedHostname }
         }
       })
     )
