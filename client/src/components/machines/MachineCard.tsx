@@ -1,10 +1,18 @@
 import { Link } from 'react-router-dom'
-import { Cpu, Printer, Bot, MapPin, Clock } from 'lucide-react'
+import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff } from 'lucide-react'
 import { Card, CardContent, Badge } from '@/components/common'
 import type { Machine, MachineStatus } from '@/types'
 
+interface PingStatus {
+  machineId: string
+  reachable: boolean | null
+  resolvedIP: string | null
+  resolvedHostname: string | null
+}
+
 interface MachineCardProps {
   machine: Machine
+  pingStatus?: PingStatus
 }
 
 const statusColors: Record<MachineStatus, string> = {
@@ -30,7 +38,15 @@ function getMachineIcon(type?: { category?: string }) {
   return <Cpu className="h-8 w-8" />
 }
 
-export function MachineCard({ machine }: MachineCardProps) {
+export function MachineCard({ machine, pingStatus }: MachineCardProps) {
+  const isReachable = pingStatus?.reachable
+  const hasNetworkConfig = pingStatus !== undefined
+
+  // Build network info string
+  const networkInfo = pingStatus?.resolvedIP || pingStatus?.resolvedHostname
+    ? `${pingStatus.resolvedHostname || ''} ${pingStatus.resolvedIP ? `(${pingStatus.resolvedIP})` : ''}`.trim()
+    : null
+
   return (
     <Link to={`/machines/${machine.id}`}>
       <Card className="group hover:shadow-md transition-shadow cursor-pointer">
@@ -59,12 +75,43 @@ export function MachineCard({ machine }: MachineCardProps) {
               <Clock className="h-3.5 w-3.5" />
               <span>{machine.hourMeter.toLocaleString()} hours</span>
             </div>
+            {/* Network Info - IP/Hostname */}
+            {networkInfo && (
+              <div
+                className="text-xs text-muted-foreground font-mono truncate"
+                title={networkInfo}
+              >
+                {networkInfo}
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex items-center justify-between">
-            <Badge variant={statusBadgeVariants[machine.status]}>
-              {machine.status.replace('_', ' ')}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant={statusBadgeVariants[machine.status]}>
+                {machine.status.replace('_', ' ')}
+              </Badge>
+              {/* Network Status Indicator */}
+              {hasNetworkConfig && (
+                <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  isReachable
+                    ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                    : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                }`}>
+                  {isReachable ? (
+                    <>
+                      <Wifi className="h-3 w-3" />
+                      <span>Online</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="h-3 w-3" />
+                      <span>Offline</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             {machine.type && (
               <span className="text-xs text-muted-foreground">
                 {machine.type.name}

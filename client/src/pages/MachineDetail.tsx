@@ -456,13 +456,16 @@ export function MachineDetail() {
                           <p className="text-sm font-medium">{ip.label}</p>
                           <p className="text-xs text-muted-foreground font-mono">{ip.ipAddress}</p>
                           {ipPingResult && (resolvedIP || resolvedHostname) && (
-                            <div className="text-xs text-muted-foreground/70 font-mono">
+                            <div className="text-xs font-mono mt-0.5 space-y-0.5">
                               {resolvedHostname && resolvedHostname !== ip.ipAddress && (
-                                <span>{resolvedHostname}</span>
+                                <p className="text-blue-600 dark:text-blue-400">
+                                  Hostname: {resolvedHostname}
+                                </p>
                               )}
-                              {resolvedHostname && resolvedIP && resolvedHostname !== ip.ipAddress && ' → '}
                               {resolvedIP && resolvedIP !== ip.ipAddress && (
-                                <span>{resolvedIP}</span>
+                                <p className="text-green-600 dark:text-green-400">
+                                  IP: {resolvedIP}
+                                </p>
                               )}
                             </div>
                           )}

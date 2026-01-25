@@ -6,6 +6,14 @@ import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
 import { MachineCard } from '@/components/machines/MachineCard'
 import { AddMachineDialog } from '@/components/machines/AddMachineDialog'
+import api from '@/services/api'
+
+interface PingStatus {
+  machineId: string
+  reachable: boolean | null
+  resolvedIP: string | null
+  resolvedHostname: string | null
+}
 
 export function Machines() {
   const { machines, setMachines, machineTypes, setMachineTypes, setLoading } = useMachineStore()
@@ -14,6 +22,7 @@ export function Machines() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
 
   useEffect(() => {
     const fetchData = async () => {
@@ -25,6 +34,18 @@ export function Machines() {
         ])
         setMachines(machinesData)
         setMachineTypes(typesData)
+
+        // Fetch ping status for all machines
+        try {
+          const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
+          const statusMap: Record<string, PingStatus> = {}
+          pingResults.forEach((result) => {
+            statusMap[result.machineId] = result
+          })
+          setPingStatus(statusMap)
+        } catch (pingError) {
+          console.error('Failed to ping machines:', pingError)
+        }
       } catch (error) {
         console.error('Failed to fetch machines:', error)
       } finally {
@@ -32,6 +53,22 @@ export function Machines() {
       }
     }
     fetchData()
+
+    // Refresh ping status every 30 seconds
+    const pingInterval = setInterval(async () => {
+      try {
+        const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
+        const statusMap: Record<string, PingStatus> = {}
+        pingResults.forEach((result) => {
+          statusMap[result.machineId] = result
+        })
+        setPingStatus(statusMap)
+      } catch (error) {
+        console.error('Ping refresh failed:', error)
+      }
+    }, 30000)
+
+    return () => clearInterval(pingInterval)
   }, [setMachines, setMachineTypes, setLoading])
 
   // Define category order for sorting
@@ -136,7 +173,7 @@ export function Machines() {
       {/* Machine Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredMachines.map((machine) => (
-          <MachineCard key={machine.id} machine={machine} />
+          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} />
         ))}
       </div>
 
