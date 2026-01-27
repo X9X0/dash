@@ -170,6 +170,91 @@ dash/
 └── scripts/             # Deployment scripts
 ```
 
+## Nginx Reverse Proxy (Optional)
+
+For production deployments, you can use nginx as a reverse proxy to serve Dash on port 80 with WebSocket support.
+
+### Automated Setup
+
+```bash
+# Deploy with nginx reverse proxy
+./scripts/deploy.sh --nginx
+
+# With a custom domain
+./scripts/deploy.sh --nginx --domain=dash.example.com
+```
+
+### Add Nginx to Existing Installation
+
+If Dash is already running and you just want to add nginx:
+
+```bash
+# Add nginx reverse proxy without re-running full deployment
+./scripts/deploy.sh --nginx-only
+
+# With a custom domain
+./scripts/deploy.sh --nginx-only --domain=dash.example.com
+```
+
+### Manual Setup
+
+If you prefer to configure nginx manually:
+
+```bash
+# Install nginx
+sudo apt install nginx        # Ubuntu/Debian
+sudo dnf install nginx        # Fedora
+
+# Copy the configuration
+# Ubuntu/Debian:
+sudo cp nginx/dash.conf /etc/nginx/sites-available/dash
+sudo ln -sf /etc/nginx/sites-available/dash /etc/nginx/sites-enabled/dash
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Fedora:
+sudo cp nginx/dash.conf /etc/nginx/conf.d/dash.conf
+
+# Test and reload
+sudo nginx -t
+sudo systemctl enable nginx
+sudo systemctl restart nginx
+```
+
+### Enable HTTPS with Let's Encrypt
+
+```bash
+# Install certbot
+sudo apt install certbot python3-certbot-nginx  # Ubuntu/Debian
+sudo dnf install certbot python3-certbot-nginx  # Fedora
+
+# Get certificate (replace with your domain)
+sudo certbot --nginx -d dash.example.com
+
+# Certificate auto-renews via systemd timer
+sudo systemctl status certbot.timer
+```
+
+### Nginx Management
+
+```bash
+# Status
+sudo systemctl status nginx
+
+# Reload config (after changes)
+sudo systemctl reload nginx
+
+# View logs
+tail -f /var/log/nginx/dash_access.log
+tail -f /var/log/nginx/dash_error.log
+```
+
+### Nginx Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `nginx/dash.conf` | Main configuration (HTTP, port 80) |
+| `nginx/dash-ssl.conf.example` | Template for manual HTTPS setup |
+
 ## Troubleshooting
 
 ### Service won't start
