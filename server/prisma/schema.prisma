@@ -12,7 +12,7 @@ model User {
   email        String   @unique
   passwordHash String   @map("password_hash")
   name         String
-  role         String   @default("viewer") // admin, operator, viewer
+  role         String   @default("operator") // admin, operator, viewer
   createdAt    DateTime @default(now()) @map("created_at")
 
   reservations        Reservation[]

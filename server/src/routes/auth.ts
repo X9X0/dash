@@ -31,7 +31,7 @@ router.post('/register', async (req, res) => {
 
     // First user becomes admin
     const userCount = await prisma.user.count()
-    const role = userCount === 0 ? 'admin' : 'viewer'
+    const role = userCount === 0 ? 'admin' : 'operator'
 
     const user = await prisma.user.create({
       data: { email, passwordHash, name, role },
