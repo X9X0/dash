@@ -1,5 +1,5 @@
 import api from './api'
-import type { Machine, MachineType, MachineStatus, HourEntry } from '@/types'
+import type { Machine, MachineType, MachineStatus, HourEntry, ServiceRecord, MaintenanceRequest, MachineStatusLog } from '@/types'
 
 export const machineService = {
   async getAll(): Promise<Machine[]> {
@@ -38,6 +38,16 @@ export const machineService = {
 
   async getTypes(): Promise<MachineType[]> {
     const { data } = await api.get<MachineType[]>('/machine-types')
+    return data
+  },
+
+  async updateStatusNote(id: string, statusNote: string | null): Promise<Machine> {
+    const { data } = await api.patch<Machine>(`/machines/${id}/status-note`, { statusNote })
+    return data
+  },
+
+  async getTimeline(id: string): Promise<{ serviceRecords: ServiceRecord[]; maintenanceRequests: MaintenanceRequest[]; statusLogs: MachineStatusLog[] }> {
+    const { data } = await api.get(`/machines/${id}/timeline`)
     return data
   },
 }

@@ -57,3 +57,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .hazard-stripes {
+    background: repeating-linear-gradient(
+      45deg,
+      #000000,
+      #000000 10px,
+      #eab308 10px,
+      #eab308 20px
+    );
+  }
+}

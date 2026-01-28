@@ -357,18 +357,19 @@ const createMachineSchema = z.object({
   typeId: z.string().min(1),
   model: z.string().min(1),
   location: z.string().min(1),
-  status: z.enum(['available', 'in_use', 'maintenance', 'offline', 'error']).optional(),
+  status: z.enum(['available', 'in_use', 'maintenance', 'offline', 'error', 'damaged_but_usable']).optional(),
   hourMeter: z.number().min(0).optional(),
   buildDate: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  statusNote: z.string().nullable().optional(),
   autoHourTracking: z.boolean().optional(),
 })
 
 const updateMachineSchema = createMachineSchema.partial()
 
 const updateStatusSchema = z.object({
-  status: z.enum(['available', 'in_use', 'maintenance', 'offline', 'error']),
+  status: z.enum(['available', 'in_use', 'maintenance', 'offline', 'error', 'damaged_but_usable']),
   source: z.enum(['manual', 'api']).optional(),
 })
 
@@ -457,6 +458,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
         buildDate: data.buildDate ? new Date(data.buildDate) : null,
         icon: data.icon || null,
         notes: data.notes || null,
+        statusNote: data.statusNote || null,
         autoHourTracking: data.autoHourTracking ?? true,
       },
       include: {
@@ -616,6 +618,62 @@ router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest
     }
     console.error('Add hours error:', error)
     res.status(500).json({ error: 'Failed to add hours' })
+  }
+})
+
+// Update status note (operator+)
+router.patch('/:id/status-note', authenticate, requireOperator, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const { statusNote } = z.object({ statusNote: z.string().nullable() }).parse(req.body)
+
+    const machine = await prisma.machine.update({
+      where: { id },
+      data: { statusNote },
+      include: { type: true },
+    })
+
+    // Emit socket event
+    const io = req.app.get('io')
+    io.emit('machine:update', machine)
+
+    res.json(machine)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    console.error('Update status note error:', error)
+    res.status(500).json({ error: 'Failed to update status note' })
+  }
+})
+
+// Get unified timeline for machine (service records + maintenance requests + status logs)
+router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+
+    const [serviceRecords, maintenanceRequests, statusLogs] = await Promise.all([
+      prisma.serviceRecord.findMany({
+        where: { machineId: id },
+        include: { user: { select: { id: true, name: true } } },
+        orderBy: { performedAt: 'desc' },
+      }),
+      prisma.maintenanceRequest.findMany({
+        where: { machineId: id },
+        include: { user: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.machineStatusLog.findMany({
+        where: { machineId: id },
+        orderBy: { timestamp: 'desc' },
+        take: 50,
+      }),
+    ])
+
+    res.json({ serviceRecords, maintenanceRequests, statusLogs })
+  } catch (error) {
+    console.error('Get timeline error:', error)
+    res.status(500).json({ error: 'Failed to get timeline' })
   }
 })
 

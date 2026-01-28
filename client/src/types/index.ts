@@ -8,7 +8,7 @@ export interface User {
   createdAt: string
 }
 
-export type MachineStatus = 'available' | 'in_use' | 'maintenance' | 'offline' | 'error'
+export type MachineStatus = 'available' | 'in_use' | 'maintenance' | 'offline' | 'error' | 'damaged_but_usable'
 export type MachineCategory = 'robot' | 'printer'
 
 export interface MachineType {
@@ -52,6 +52,7 @@ export interface Machine {
   buildDate: string | null
   icon: string | null
   notes: string | null
+  statusNote: string | null
   autoHourTracking: boolean
   lastPingAt: string | null
   createdAt: string

@@ -174,6 +174,7 @@ export function Dashboard() {
                   if (machine.status === 'available' && isReachable === true) return 'bg-green-500'
                   if (machine.status === 'error') return 'bg-red-500'
                   if (machine.status === 'offline') return 'bg-gray-500'
+                  if (machine.status === 'damaged_but_usable') return 'hazard-stripes'
                   if (machine.status === 'available' && isReachable === false) return 'bg-yellow-500'
                   if (machine.status === 'in_use') return 'bg-blue-500'
                   if (machine.status === 'maintenance') return 'bg-yellow-500'
@@ -184,6 +185,7 @@ export function Dashboard() {
                   if (machine.status === 'available' && isReachable === true) return 'Ready'
                   if (machine.status === 'available' && isReachable === false) return 'Unreachable'
                   if (machine.status === 'available' && !hasNetworkConfig) return 'Available'
+                  if (machine.status === 'damaged_but_usable') return 'Damaged (Usable)'
                   return machine.status.replace('_', ' ')
                 }
 
@@ -194,16 +196,17 @@ export function Dashboard() {
                   <Link
                     key={machine.id}
                     to={`/machines/${machine.id}`}
-                    className="flex items-center gap-3 rounded-lg border p-3 hover:bg-accent transition-colors"
+                    className="flex flex-col rounded-lg border hover:bg-accent transition-colors overflow-hidden"
                   >
+                    <div className={`h-3 ${getIndicatorColor()}`} />
+                    <div className="flex items-center gap-3 p-3">
                     <div className="relative">
-                      <div className={`h-4 w-4 rounded-full ${getIndicatorColor()}`} />
                       {hasNetworkConfig && (
-                        <div className="absolute -bottom-1 -right-1">
+                        <div>
                           {isReachable ? (
-                            <Wifi className="h-2.5 w-2.5 text-green-600" />
+                            <Wifi className="h-3.5 w-3.5 text-green-600" />
                           ) : (
-                            <WifiOff className="h-2.5 w-2.5 text-red-500" />
+                            <WifiOff className="h-3.5 w-3.5 text-red-500" />
                           )}
                         </div>
                       )}
@@ -230,6 +233,7 @@ export function Dashboard() {
                       <span className={`text-xs font-medium capitalize ${
                         machine.status === 'available' && isReachable === true ? 'text-green-600' :
                         machine.status === 'error' ? 'text-red-500' :
+                        machine.status === 'damaged_but_usable' ? 'text-yellow-600' :
                         machine.status === 'available' && isReachable === false ? 'text-yellow-600' :
                         'text-muted-foreground'
                       }`}>
@@ -237,6 +241,12 @@ export function Dashboard() {
                       </span>
                       <p className="text-[10px] text-muted-foreground">{machine.type?.name}</p>
                     </div>
+                    </div>
+                    {machine.statusNote && (
+                      <p className="px-3 pb-2 text-[10px] italic text-muted-foreground line-clamp-2">
+                        {machine.statusNote}
+                      </p>
+                    )}
                   </Link>
                 )
               })}

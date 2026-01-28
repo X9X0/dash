@@ -273,6 +273,7 @@ export function MachineEdit() {
                     <SelectItem value="maintenance">Maintenance</SelectItem>
                     <SelectItem value="offline">Offline</SelectItem>
                     <SelectItem value="error">Error</SelectItem>
+                    <SelectItem value="damaged_but_usable">Damaged (Usable)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

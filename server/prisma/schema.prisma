@@ -44,11 +44,12 @@ model Machine {
   typeId           String   @map("type_id")
   model            String
   location         String
-  status           String   @default("available") // available, in_use, maintenance, offline, error
+  status           String   @default("available") // available, in_use, maintenance, offline, error, damaged_but_usable
   hourMeter        Float    @default(0) @map("hour_meter")
   buildDate        DateTime? @map("build_date")
   icon             String?
   notes            String?
+  statusNote       String?  @map("status_note")
   autoHourTracking Boolean  @default(false) @map("auto_hour_tracking")
   lastPingAt       DateTime? @map("last_ping_at")
   createdAt        DateTime @default(now()) @map("created_at")

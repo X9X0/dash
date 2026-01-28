@@ -77,6 +77,7 @@ export function Kiosk() {
     if (machine.status === 'available' && isReachable === true) return 'bg-green-500'
     if (machine.status === 'error') return 'bg-red-500'
     if (machine.status === 'offline') return 'bg-gray-500'
+    if (machine.status === 'damaged_but_usable') return 'hazard-stripes'
     if (machine.status === 'available' && isReachable === false) return 'bg-yellow-500'
     if (machine.status === 'in_use') return 'bg-blue-500'
     if (machine.status === 'maintenance') return 'bg-yellow-500'
@@ -95,6 +96,7 @@ export function Kiosk() {
     if (machine.status === 'maintenance') return 'Maintenance'
     if (machine.status === 'offline') return 'Offline'
     if (machine.status === 'error') return 'Error'
+    if (machine.status === 'damaged_but_usable') return 'Damaged (Usable)'
     return machine.status
   }
 
@@ -103,6 +105,7 @@ export function Kiosk() {
     const isReachable = status?.reachable
     if (machine.status === 'available' && isReachable === true) return 'text-green-500'
     if (machine.status === 'error') return 'text-red-500'
+    if (machine.status === 'damaged_but_usable') return 'text-yellow-600'
     if (machine.status === 'available' && isReachable === false) return 'text-yellow-500'
     if (machine.status === 'in_use') return 'text-blue-500'
     if (machine.status === 'maintenance') return 'text-yellow-500'
@@ -222,6 +225,10 @@ export function Kiosk() {
           <div className="h-4 w-4 rounded-full bg-gray-500" />
           <span>Offline</span>
         </div>
+        <div className="flex items-center gap-2">
+          <div className="h-4 w-4 rounded-full hazard-stripes" />
+          <span>Damaged (Usable)</span>
+        </div>
       </div>
 
       {/* Machine Grid by Type */}
@@ -238,13 +245,14 @@ export function Kiosk() {
               return (
                 <div
                   key={machine.id}
-                  className="rounded-xl border bg-card p-4 shadow-sm hover:shadow-md transition-shadow"
+                  className="rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow overflow-hidden"
                 >
+                  <div className={`h-3 ${getIndicatorColor(machine)}`} />
+                  <div className="p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div className={`p-2 rounded-lg bg-muted ${getStatusTextColor(machine)}`}>
                       {getMachineIcon(machine.type?.category)}
                     </div>
-                    <div className={`h-5 w-5 rounded-full ${getIndicatorColor(machine)}`} />
                   </div>
                   <h3 className="font-semibold truncate" title={machine.name}>
                     {machine.name}
@@ -290,6 +298,12 @@ export function Kiosk() {
                       )}
                     </div>
                   )}
+                  {machine.statusNote && (
+                    <p className="mt-2 text-xs italic text-muted-foreground line-clamp-2">
+                      {machine.statusNote}
+                    </p>
+                  )}
+                  </div>
                 </div>
               )
             })}

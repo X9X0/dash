@@ -21,14 +21,16 @@ const statusColors: Record<MachineStatus, string> = {
   maintenance: 'bg-yellow-500',
   offline: 'bg-gray-500',
   error: 'bg-red-500',
+  damaged_but_usable: 'hazard-stripes',
 }
 
-const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive'> = {
+const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive' | 'caution'> = {
   available: 'success',
   in_use: 'default',
   maintenance: 'warning',
   offline: 'secondary',
   error: 'destructive',
+  damaged_but_usable: 'caution',
 }
 
 function getMachineIcon(type?: { category?: string }) {
@@ -46,17 +48,15 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
 
   return (
     <Link to={`/machines/${machine.id}`}>
-      <Card className="group hover:shadow-md transition-shadow cursor-pointer">
+      <Card className="group hover:shadow-md transition-shadow cursor-pointer overflow-hidden">
+        <div className={`h-3 ${statusColors[machine.status]}`} />
         <CardContent className="p-4">
           <div className="flex items-start gap-4">
             <div className="p-3 rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
               {getMachineIcon(machine.type)}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-semibold truncate">{machine.name}</h3>
-                <div className={`h-3 w-3 rounded-full ${statusColors[machine.status]} flex-shrink-0`} />
-              </div>
+              <h3 className="font-semibold truncate">{machine.name}</h3>
               <p className="text-sm text-muted-foreground truncate">
                 {machine.model}
               </p>
@@ -88,6 +88,12 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
               </div>
             )}
           </div>
+
+          {machine.statusNote && (
+            <p className="mt-2 text-xs italic text-muted-foreground line-clamp-2">
+              {machine.statusNote}
+            </p>
+          )}
 
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center gap-2">

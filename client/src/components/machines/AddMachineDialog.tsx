@@ -213,6 +213,7 @@ export function AddMachineDialog({ open, onOpenChange, machineTypes }: AddMachin
                     <SelectItem value="in_use">In Use</SelectItem>
                     <SelectItem value="maintenance">Maintenance</SelectItem>
                     <SelectItem value="offline">Offline</SelectItem>
+                    <SelectItem value="damaged_but_usable">Damaged (Usable)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

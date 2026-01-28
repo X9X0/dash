@@ -16,6 +16,10 @@ import {
   X,
   Timer,
   Wrench,
+  Pencil,
+  Check,
+  AlertTriangle,
+  ArrowRightLeft,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import {
@@ -40,7 +44,7 @@ import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
 import { MaintenanceRequestDialog } from '@/components/machines/MaintenanceRequestDialog'
-import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog } from '@/types'
+import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog, MaintenanceRequest } from '@/types'
 
 interface MachineDetailData extends Machine {
   statusLogs?: MachineStatusLog[]
@@ -65,14 +69,16 @@ const statusColors: Record<MachineStatus, string> = {
   maintenance: 'bg-yellow-500',
   offline: 'bg-gray-500',
   error: 'bg-red-500',
+  damaged_but_usable: 'hazard-stripes',
 }
 
-const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive'> = {
+const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive' | 'caution'> = {
   available: 'success',
   in_use: 'default',
   maintenance: 'warning',
   offline: 'secondary',
   error: 'destructive',
+  damaged_but_usable: 'caution',
 }
 
 export function MachineDetail() {
@@ -86,6 +92,7 @@ export function MachineDetail() {
   const [pingResult, setPingResult] = useState<PingResult | null>(null)
   const [pinging, setPinging] = useState(false)
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([])
+  const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([])
 
   // IP management state
   const [showAddIP, setShowAddIP] = useState(false)
@@ -105,10 +112,15 @@ export function MachineDetail() {
   // Maintenance request state
   const [showMaintenanceRequest, setShowMaintenanceRequest] = useState(false)
 
+  // Status note state
+  const [editingStatusNote, setEditingStatusNote] = useState(false)
+  const [statusNoteValue, setStatusNoteValue] = useState('')
+  const [savingStatusNote, setSavingStatusNote] = useState(false)
+
   useEffect(() => {
     if (id) {
       fetchMachine()
-      fetchServiceRecords()
+      fetchTimeline()
     }
   }, [id])
 
@@ -126,12 +138,14 @@ export function MachineDetail() {
     }
   }
 
-  const fetchServiceRecords = async () => {
+  const fetchTimeline = async () => {
     try {
-      const { data } = await api.get<ServiceRecord[]>(`/machines/${id}/service-history`)
-      setServiceRecords(data)
+      const timeline = await machineService.getTimeline(id!)
+      setServiceRecords(timeline.serviceRecords)
+      setMaintenanceRequests(timeline.maintenanceRequests)
+      // statusLogs come from the machine object already
     } catch (error) {
-      console.error('Failed to fetch service records:', error)
+      console.error('Failed to fetch timeline:', error)
     }
   }
 
@@ -185,6 +199,20 @@ export function MachineDetail() {
       console.error('Failed to update status:', error)
     } finally {
       setChangingStatus(false)
+    }
+  }
+
+  const handleSaveStatusNote = async () => {
+    if (!machine) return
+    setSavingStatusNote(true)
+    try {
+      const updated = await machineService.updateStatusNote(machine.id, statusNoteValue || null)
+      setMachine((prev) => prev ? { ...prev, statusNote: updated.statusNote } : null)
+      setEditingStatusNote(false)
+    } catch (error) {
+      console.error('Failed to update status note:', error)
+    } finally {
+      setSavingStatusNote(false)
     }
   }
 
@@ -260,7 +288,7 @@ export function MachineDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">{machine.name}</h1>
-              <div className={`h-3 w-3 rounded-full ${statusColors[machine.status]}`} />
+              <div className={`h-3 w-6 rounded-full ${statusColors[machine.status]}`} />
               {pingResult && (
                 <div className="flex items-center gap-1">
                   {pingResult.reachable ? (
@@ -357,6 +385,46 @@ export function MachineDetail() {
               </div>
             )}
 
+            {/* Status Note */}
+            <div className="pt-4 border-t">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm text-muted-foreground">Status Note</p>
+                {(user?.role === 'admin' || user?.role === 'operator') && !editingStatusNote && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2"
+                    onClick={() => {
+                      setStatusNoteValue(machine.statusNote || '')
+                      setEditingStatusNote(true)
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              {editingStatusNote ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={statusNoteValue}
+                    onChange={(e) => setStatusNoteValue(e.target.value)}
+                    placeholder="Short status note..."
+                    className="h-8 text-sm"
+                  />
+                  <Button size="sm" className="h-8" onClick={handleSaveStatusNote} disabled={savingStatusNote}>
+                    <Check className="h-3 w-3" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingStatusNote(false)}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <p className={`text-sm ${machine.statusNote ? 'italic' : 'text-muted-foreground'}`}>
+                  {machine.statusNote || 'No status note'}
+                </p>
+              )}
+            </div>
+
             {/* Status Control */}
             {(user?.role === 'admin' || user?.role === 'operator') && (
               <div className="pt-4 border-t">
@@ -376,10 +444,11 @@ export function MachineDetail() {
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="offline">Offline</SelectItem>
                       <SelectItem value="error">Error</SelectItem>
+                      <SelectItem value="damaged_but_usable">Damaged (Usable)</SelectItem>
                     </SelectContent>
                   </Select>
                   <Badge variant={statusBadgeVariants[machine.status]}>
-                    {machine.status.replace('_', ' ')}
+                    {machine.status === 'damaged_but_usable' ? 'damaged (usable)' : machine.status.replace('_', ' ')}
                   </Badge>
                 </div>
               </div>
@@ -501,103 +570,166 @@ export function MachineDetail() {
           </CardContent>
         </Card>
 
-        {/* Service History */}
-        <Card className="lg:col-span-2">
+        {/* Unified Timeline: Service & Maintenance */}
+        <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Service History</CardTitle>
+            <CardTitle>Service & Maintenance</CardTitle>
             {(user?.role === 'admin' || user?.role === 'operator') && (
-              <Button variant="ghost" size="sm" onClick={() => setShowServiceRecord(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                Add Record
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowMaintenanceRequest(true)}>
+                  <AlertTriangle className="h-4 w-4 mr-1" />
+                  Report Issue
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Record
+                </Button>
+              </div>
             )}
           </CardHeader>
           <CardContent>
-            {serviceRecords.length > 0 ? (
-              <div className="space-y-3">
-                {serviceRecords.map((record) => (
-                  <div key={record.id} className="flex items-start gap-3 p-3 rounded-lg border group">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{record.type}</Badge>
-                        <span className="text-sm text-muted-foreground">
-                          {format(parseISO(record.performedAt), 'MMM d, yyyy')}
-                        </span>
-                      </div>
-                      <p className="mt-1">{record.description}</p>
-                      {record.partsUsed && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Parts: {record.partsUsed}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground mt-1">
-                        By {record.performedBy}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {record.cost && (
-                        <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
-                      )}
-                      {(user?.role === 'admin' || user?.role === 'operator') && (
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => handleEditServiceRecord(record)}
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteServiceRecord(record.id)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8">
-                <p className="text-muted-foreground mb-2">No service records</p>
-                {(user?.role === 'admin' || user?.role === 'operator') && (
-                  <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add First Record
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            {(() => {
+              // Build unified timeline entries
+              type TimelineEntry =
+                | { type: 'service'; date: string; data: ServiceRecord }
+                | { type: 'maintenance'; date: string; data: MaintenanceRequest }
+                | { type: 'status'; date: string; data: MachineStatusLog }
 
-        {/* Status History */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Status History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {machine.statusLogs && machine.statusLogs.length > 0 ? (
-              <div className="space-y-2">
-                {machine.statusLogs.slice(0, 10).map((log) => (
-                  <div key={log.id} className="flex items-center justify-between text-sm">
-                    <Badge variant={statusBadgeVariants[log.status as MachineStatus]} className="text-xs">
-                      {log.status.replace('_', ' ')}
-                    </Badge>
-                    <span className="text-muted-foreground">
-                      {format(parseISO(log.timestamp), 'MMM d, h:mm a')}
-                    </span>
+              const entries: TimelineEntry[] = [
+                ...serviceRecords.map((r) => ({
+                  type: 'service' as const,
+                  date: r.performedAt,
+                  data: r,
+                })),
+                ...maintenanceRequests.map((r) => ({
+                  type: 'maintenance' as const,
+                  date: r.createdAt,
+                  data: r,
+                })),
+                ...(machine.statusLogs || []).map((l) => ({
+                  type: 'status' as const,
+                  date: l.timestamp,
+                  data: l,
+                })),
+              ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+              if (entries.length === 0) {
+                return (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <p className="text-muted-foreground mb-2">No history yet</p>
+                    {(user?.role === 'admin' || user?.role === 'operator') && (
+                      <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add First Record
+                      </Button>
+                    )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">No status history</p>
-            )}
+                )
+              }
+
+              return (
+                <div className="space-y-3">
+                  {entries.map((entry) => {
+                    if (entry.type === 'service') {
+                      const record = entry.data as ServiceRecord
+                      return (
+                        <div key={`service-${record.id}`} className="flex items-start gap-3 p-3 rounded-lg border group">
+                          <div className="mt-0.5">
+                            <Wrench className="h-4 w-4 text-blue-500" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="default" className="text-xs">Service</Badge>
+                              <Badge variant="outline" className="text-xs">{record.type}</Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {format(parseISO(record.performedAt), 'MMM d, yyyy')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm">{record.description}</p>
+                            {record.partsUsed && (
+                              <p className="text-xs text-muted-foreground mt-1">Parts: {record.partsUsed}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-1">By {record.performedBy}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {record.cost != null && record.cost > 0 && (
+                              <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
+                            )}
+                            {(user?.role === 'admin' || user?.role === 'operator') && (
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditServiceRecord(record)}>
+                                  <Edit className="h-3 w-3" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteServiceRecord(record.id)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    if (entry.type === 'maintenance') {
+                      const request = entry.data as MaintenanceRequest
+                      return (
+                        <div key={`maintenance-${request.id}`} className="flex items-start gap-3 p-3 rounded-lg border">
+                          <div className="mt-0.5">
+                            <AlertTriangle className="h-4 w-4 text-orange-500" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="warning" className="text-xs">Issue</Badge>
+                              <Badge variant="outline" className="text-xs">{request.type}</Badge>
+                              <Badge variant={
+                                request.priority === 'critical' ? 'destructive' :
+                                request.priority === 'high' ? 'warning' : 'secondary'
+                              } className="text-xs">{request.priority}</Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {format(parseISO(request.createdAt), 'MMM d, yyyy')}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm">{request.description}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-muted-foreground">
+                                Status: {request.status}
+                              </span>
+                              {request.user && (
+                                <span className="text-xs text-muted-foreground">
+                                  by {request.user.name}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    // status log
+                    const log = entry.data as MachineStatusLog
+                    return (
+                      <div key={`status-${log.id}`} className="flex items-start gap-3 p-3 rounded-lg border">
+                        <div className="mt-0.5">
+                          <ArrowRightLeft className="h-4 w-4 text-gray-500" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">Status Change</Badge>
+                            <Badge variant={statusBadgeVariants[log.status as MachineStatus] || 'secondary'} className="text-xs">
+                              {log.status === 'damaged_but_usable' ? 'damaged (usable)' : log.status.replace('_', ' ')}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {format(parseISO(log.timestamp), 'MMM d, h:mm a')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">Source: {log.source}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
 

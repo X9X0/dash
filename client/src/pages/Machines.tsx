@@ -106,6 +106,7 @@ export function Machines() {
     { value: 'maintenance', label: 'Maintenance' },
     { value: 'offline', label: 'Offline' },
     { value: 'error', label: 'Error' },
+    { value: 'damaged_but_usable', label: 'Damaged (Usable)' },
   ]
 
   return (
