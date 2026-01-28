@@ -12,18 +12,24 @@ const HOURS_PER_INTERVAL = CHECK_INTERVAL_MINUTES / 60
 
 let isRunning = false
 
-async function pingHost(ipAddress: string): Promise<boolean> {
-  try {
-    const isWindows = process.platform === 'win32'
-    const pingCmd = isWindows
-      ? `ping -n 1 -w 2000 ${ipAddress}`
-      : `ping -c 1 -W 2 ${ipAddress}`
+async function pingHost(ipAddress: string, retries = 2): Promise<boolean> {
+  const isWindows = process.platform === 'win32'
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const pingCmd = isWindows
+        ? `ping -n 1 -w 2000 ${ipAddress}`
+        : `ping -c 1 -W 2 ${ipAddress}`
 
-    await execAsync(pingCmd, { timeout: 5000 })
-    return true
-  } catch {
-    return false
+      await execAsync(pingCmd, { timeout: 5000 })
+      return true
+    } catch {
+      // If not the last attempt, wait briefly before retrying
+      if (attempt < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    }
   }
+  return false
 }
 
 async function checkMachines(): Promise<void> {

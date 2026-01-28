@@ -4,42 +4,245 @@ import { z } from 'zod'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import dns from 'dns'
+import net from 'net'
 import { authenticate, requireAdmin, requireOperator, AuthRequest } from '../middleware/auth.js'
 
 const execAsync = promisify(exec)
 const dnsLookup = promisify(dns.lookup)
 const dnsReverse = promisify(dns.reverse)
 
-// Check if a string looks like an IP address
+// --- DNS Resolution Cache ---
+interface DnsCacheEntry {
+  resolvedIP: string | null
+  resolvedHostname: string | null
+  timestamp: number
+}
+const dnsCache = new Map<string, DnsCacheEntry>()
+const DNS_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const DNS_TIMEOUT = 2000 // 2 seconds max for any DNS operation
+
+// --- Ping Result Cache ---
+interface PingCacheEntry {
+  reachable: boolean
+  resolvedIP: string | null
+  resolvedHostname: string | null
+  timestamp: number
+}
+const pingCache = new Map<string, PingCacheEntry>()
+const PING_CACHE_TTL = 10 * 1000 // 10 seconds
+
+// Clean expired cache entries periodically
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of dnsCache) {
+    if (now - entry.timestamp > DNS_CACHE_TTL) dnsCache.delete(key)
+  }
+  for (const [key, entry] of pingCache) {
+    if (now - entry.timestamp > PING_CACHE_TTL) pingCache.delete(key)
+  }
+}, 60 * 1000) // Clean every minute
+
+// Check if a string is an IP address using Node's built-in net module
 function isIPAddress(str: string): boolean {
-  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/
-  const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/
-  return ipv4Regex.test(str) || ipv6Regex.test(str)
+  return net.isIP(str) !== 0
 }
 
-// Resolve hostname to IP or do reverse lookup
-async function resolveAddress(address: string): Promise<{ resolvedIP: string | null; resolvedHostname: string | null }> {
+// Wrap a promise with a timeout
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ])
+}
+
+// Try to resolve hostname from IP using platform commands (nbtstat, ping -a)
+// This works on Windows LANs where DNS PTR records don't exist
+async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
+  const isWindows = process.platform === 'win32'
   try {
-    if (isIPAddress(address)) {
-      // It's an IP, try reverse DNS lookup
+    if (isWindows) {
+      // Try nbtstat first (NetBIOS name resolution - works on most Windows LANs)
       try {
-        const hostnames = await dnsReverse(address)
-        return { resolvedIP: address, resolvedHostname: hostnames[0] || null }
+        const { stdout } = await execAsync(`nbtstat -A ${ip}`, { timeout: 3000 })
+        const match = stdout.match(/<00>\s+UNIQUE\s+Registered\s+(\S+)/i) ||
+                      stdout.match(/^\s*(\S+)\s+<00>/m)
+        if (match?.[1] && match[1] !== ip) {
+          return match[1].trim().toLowerCase()
+        }
       } catch {
-        return { resolvedIP: address, resolvedHostname: null }
+        // nbtstat failed, try ping -a
+      }
+
+      // Try ping -a (asks Windows to resolve the name)
+      try {
+        const { stdout } = await execAsync(`ping -a -n 1 -w 1000 ${ip}`, { timeout: 3000 })
+        const match = stdout.match(/Pinging\s+(\S+)\s+\[/)
+        if (match?.[1] && match[1] !== ip) {
+          return match[1].trim().toLowerCase()
+        }
+      } catch {
+        // ping -a also failed
       }
     } else {
-      // It's a hostname, resolve to IP
+      // On Linux/Mac, try avahi-resolve for mDNS or host command
       try {
-        const result = await dnsLookup(address)
-        return { resolvedIP: result.address, resolvedHostname: address }
+        const { stdout } = await execAsync(`host ${ip}`, { timeout: 3000 })
+        const match = stdout.match(/domain name pointer\s+(\S+)/i)
+        if (match?.[1]) {
+          return match[1].replace(/\.$/, '').toLowerCase()
+        }
       } catch {
-        return { resolvedIP: null, resolvedHostname: address }
+        // host command failed
       }
     }
   } catch {
-    return { resolvedIP: null, resolvedHostname: null }
+    // All system resolution attempts failed
   }
+  return null
+}
+
+// Try to resolve IP from hostname using platform commands
+async function resolveIPViaSystem(hostname: string): Promise<string | null> {
+  const isWindows = process.platform === 'win32'
+  try {
+    if (isWindows) {
+      // Try nslookup
+      try {
+        const { stdout } = await execAsync(`nslookup ${hostname}`, { timeout: 3000 })
+        // nslookup output: look for the address after the "Name:" line
+        const lines = stdout.split('\n')
+        let foundName = false
+        for (const line of lines) {
+          if (foundName && line.match(/Address/i)) {
+            const match = line.match(/Address\S*:\s*(\S+)/)
+            if (match?.[1] && net.isIP(match[1])) {
+              return match[1]
+            }
+          }
+          if (line.match(/Name/i)) foundName = true
+        }
+      } catch {
+        // nslookup failed
+      }
+    } else {
+      try {
+        const { stdout } = await execAsync(`getent hosts ${hostname}`, { timeout: 3000 })
+        const match = stdout.match(/^(\S+)/)
+        if (match?.[1] && net.isIP(match[1])) {
+          return match[1]
+        }
+      } catch {
+        // getent failed
+      }
+    }
+  } catch {
+    // All system resolution attempts failed
+  }
+  return null
+}
+
+// Resolve hostname to IP or do reverse lookup, with caching and fallbacks
+async function resolveAddress(address: string): Promise<{ resolvedIP: string | null; resolvedHostname: string | null }> {
+  // Check cache first
+  const cached = dnsCache.get(address)
+  if (cached && Date.now() - cached.timestamp < DNS_CACHE_TTL) {
+    return { resolvedIP: cached.resolvedIP, resolvedHostname: cached.resolvedHostname }
+  }
+
+  let resolvedIP: string | null = null
+  let resolvedHostname: string | null = null
+
+  try {
+    if (isIPAddress(address)) {
+      resolvedIP = address
+
+      // Strategy 1: Try dns.reverse() with timeout
+      try {
+        const hostnames = await withTimeout(
+          dnsReverse(address),
+          DNS_TIMEOUT,
+          [] as string[]
+        )
+        if (hostnames.length > 0 && hostnames[0]) {
+          resolvedHostname = hostnames[0]
+        }
+      } catch {
+        // dns.reverse() failed (common - many networks lack PTR records)
+      }
+
+      // Strategy 2: If dns.reverse() failed, try system-level resolution
+      if (!resolvedHostname) {
+        resolvedHostname = await resolveHostnameViaSystem(address)
+      }
+
+      if (resolvedHostname) {
+        console.log(`[DNS] Resolved ${address} -> ${resolvedHostname}`)
+      }
+    } else {
+      resolvedHostname = address
+
+      // Strategy 1: Try dns.lookup() with timeout
+      try {
+        const result = await withTimeout(
+          dnsLookup(address),
+          DNS_TIMEOUT,
+          null as { address: string } | null
+        )
+        if (result?.address) {
+          resolvedIP = result.address
+        }
+      } catch {
+        // dns.lookup() failed
+      }
+
+      // Strategy 2: If dns.lookup() failed, try system-level resolution
+      if (!resolvedIP) {
+        resolvedIP = await resolveIPViaSystem(address)
+      }
+
+      if (resolvedIP) {
+        console.log(`[DNS] Resolved ${address} -> ${resolvedIP}`)
+      } else {
+        console.log(`[DNS] Failed to resolve hostname: ${address}`)
+      }
+    }
+  } catch (error) {
+    console.error(`[DNS] Error resolving ${address}:`, error)
+  }
+
+  // Cache the result (even failures, to avoid hammering DNS)
+  dnsCache.set(address, { resolvedIP, resolvedHostname, timestamp: Date.now() })
+
+  return { resolvedIP, resolvedHostname }
+}
+
+// Ping with retry - pings twice before declaring offline
+async function pingWithRetry(target: string, retries = 2): Promise<boolean> {
+  const isWindows = process.platform === 'win32'
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const pingCmd = isWindows
+        ? `ping -n 1 -w 2000 ${target}`
+        : `ping -c 1 -W 2 ${target}`
+      await execAsync(pingCmd, { timeout: 5000 })
+      return true
+    } catch {
+      // If this wasn't the last attempt, wait briefly before retrying
+      if (attempt < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    }
+  }
+  return false
+}
+
+// Get cached ping result or null if not cached/expired
+function getCachedPing(target: string): PingCacheEntry | null {
+  const cached = pingCache.get(target)
+  if (cached && Date.now() - cached.timestamp < PING_CACHE_TTL) {
+    return cached
+  }
+  return null
 }
 const router = Router()
 const prisma = new PrismaClient()
@@ -154,6 +357,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
         buildDate: data.buildDate ? new Date(data.buildDate) : null,
         icon: data.icon || null,
         notes: data.notes || null,
+        autoHourTracking: data.autoHourTracking ?? true,
       },
       include: {
         type: true,
@@ -484,7 +688,7 @@ router.put('/:id/custom-fields', authenticate, requireAdmin, async (req: AuthReq
   }
 })
 
-// Ping machine to check reachability
+// Ping machine to check reachability (with retry and caching)
 router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
@@ -501,38 +705,43 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
       return res.json({ reachable: false, reason: 'No IP addresses configured' })
     }
 
-    // Ping each IP and return results with DNS resolution
+    // Ping each IP with retry logic and DNS resolution
     const pingResults = await Promise.all(
       machine.ips.map(async (ip: { id: string; label: string; ipAddress: string }) => {
-        // Resolve address (hostname to IP or reverse DNS)
         const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
         const pingTarget = resolvedIP || ip.ipAddress
 
-        try {
-          // Use platform-appropriate ping command
-          const isWindows = process.platform === 'win32'
-          const pingCmd = isWindows
-            ? `ping -n 1 -w 2000 ${pingTarget}`
-            : `ping -c 1 -W 2 ${pingTarget}`
+        // Check ping cache first
+        const cached = getCachedPing(pingTarget)
+        if (cached) {
+          return {
+            id: ip.id,
+            label: ip.label,
+            ipAddress: ip.ipAddress,
+            resolvedIP: cached.resolvedIP ?? resolvedIP,
+            resolvedHostname: cached.resolvedHostname ?? resolvedHostname,
+            reachable: cached.reachable,
+          }
+        }
 
-          await execAsync(pingCmd, { timeout: 5000 })
-          return {
-            id: ip.id,
-            label: ip.label,
-            ipAddress: ip.ipAddress,
-            resolvedIP,
-            resolvedHostname,
-            reachable: true,
-          }
-        } catch {
-          return {
-            id: ip.id,
-            label: ip.label,
-            ipAddress: ip.ipAddress,
-            resolvedIP,
-            resolvedHostname,
-            reachable: false,
-          }
+        // Ping with retry (2 attempts before declaring offline)
+        const reachable = await pingWithRetry(pingTarget, 2)
+
+        // Cache the result
+        pingCache.set(pingTarget, {
+          reachable,
+          resolvedIP,
+          resolvedHostname,
+          timestamp: Date.now(),
+        })
+
+        return {
+          id: ip.id,
+          label: ip.label,
+          ipAddress: ip.ipAddress,
+          resolvedIP,
+          resolvedHostname,
+          reachable,
         }
       })
     )
@@ -549,7 +758,42 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
   }
 })
 
-// Ping all machines (batch)
+// Helper: ping a single machine's first IP with caching and retry
+async function pingMachineFirstIP(machine: { id: string; ips: Array<{ ipAddress: string }> }) {
+  if (!machine.ips || machine.ips.length === 0) {
+    return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
+  }
+
+  const ip = machine.ips[0]
+  const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
+  const pingTarget = resolvedIP || ip.ipAddress
+
+  // Check ping cache first
+  const cached = getCachedPing(pingTarget)
+  if (cached) {
+    return {
+      machineId: machine.id,
+      reachable: cached.reachable,
+      resolvedIP: cached.resolvedIP ?? resolvedIP,
+      resolvedHostname: cached.resolvedHostname ?? resolvedHostname,
+    }
+  }
+
+  // Ping with retry (2 attempts)
+  const reachable = await pingWithRetry(pingTarget, 2)
+
+  // Cache the result
+  pingCache.set(pingTarget, {
+    reachable,
+    resolvedIP,
+    resolvedHostname,
+    timestamp: Date.now(),
+  })
+
+  return { machineId: machine.id, reachable, resolvedIP, resolvedHostname }
+}
+
+// Ping all machines (batch) - with caching so multiple clients share results
 router.get('/ping/all', authenticate, async (req: AuthRequest, res) => {
   try {
     const machines = await prisma.machine.findMany({
@@ -557,28 +801,7 @@ router.get('/ping/all', authenticate, async (req: AuthRequest, res) => {
     })
 
     const results = await Promise.all(
-      machines.map(async (machine) => {
-        if (!machine.ips || machine.ips.length === 0) {
-          return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
-        }
-
-        // Ping first IP only for batch check
-        const ip = machine.ips[0]
-        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
-        const pingTarget = resolvedIP || ip.ipAddress
-
-        try {
-          const isWindows = process.platform === 'win32'
-          const pingCmd = isWindows
-            ? `ping -n 1 -w 1000 ${pingTarget}`
-            : `ping -c 1 -W 1 ${pingTarget}`
-
-          await execAsync(pingCmd, { timeout: 3000 })
-          return { machineId: machine.id, reachable: true, resolvedIP, resolvedHostname }
-        } catch {
-          return { machineId: machine.id, reachable: false, resolvedIP, resolvedHostname }
-        }
-      })
+      machines.map((machine) => pingMachineFirstIP(machine))
     )
 
     res.json(results)
@@ -596,27 +819,7 @@ router.get('/ping/all/public', async (req, res) => {
     })
 
     const results = await Promise.all(
-      machines.map(async (machine) => {
-        if (!machine.ips || machine.ips.length === 0) {
-          return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
-        }
-
-        const ip = machine.ips[0]
-        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
-        const pingTarget = resolvedIP || ip.ipAddress
-
-        try {
-          const isWindows = process.platform === 'win32'
-          const pingCmd = isWindows
-            ? `ping -n 1 -w 1000 ${pingTarget}`
-            : `ping -c 1 -W 1 ${pingTarget}`
-
-          await execAsync(pingCmd, { timeout: 3000 })
-          return { machineId: machine.id, reachable: true, resolvedIP, resolvedHostname }
-        } catch {
-          return { machineId: machine.id, reachable: false, resolvedIP, resolvedHostname }
-        }
-      })
+      machines.map((machine) => pingMachineFirstIP(machine))
     )
 
     res.json(results)
