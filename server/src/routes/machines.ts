@@ -84,7 +84,9 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
         // ping -a also failed
       }
     } else {
-      // On Linux/Mac, try avahi-resolve for mDNS or host command
+      // On Linux/Mac, try multiple reverse resolution strategies
+
+      // Strategy 1: host command (standard reverse DNS)
       try {
         const { stdout } = await execAsync(`host ${ip}`, { timeout: 3000 })
         const match = stdout.match(/domain name pointer\s+(\S+)/i)
@@ -93,6 +95,28 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
         }
       } catch {
         // host command failed
+      }
+
+      // Strategy 2: nmblookup (Samba NetBIOS - equivalent of Windows nbtstat)
+      try {
+        const { stdout } = await execAsync(`nmblookup -A ${ip}`, { timeout: 3000 })
+        const match = stdout.match(/^\s+(\S+)\s+<00>\s+-\s+.*<ACTIVE>/mi)
+        if (match?.[1] && match[1] !== ip) {
+          return match[1].trim().toLowerCase()
+        }
+      } catch {
+        // nmblookup not installed or failed
+      }
+
+      // Strategy 3: avahi-resolve-address (mDNS/Bonjour)
+      try {
+        const { stdout } = await execAsync(`avahi-resolve-address ${ip}`, { timeout: 3000 })
+        const match = stdout.match(/\s+(\S+)\s*$/)
+        if (match?.[1] && match[1] !== ip) {
+          return match[1].replace(/\.$/, '').trim().toLowerCase()
+        }
+      } catch {
+        // avahi-resolve not installed or failed
       }
     }
   } catch {
@@ -137,6 +161,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
         // ping -a failed
       }
     } else {
+      // Strategy 1: getent hosts
       try {
         const { stdout } = await execAsync(`getent hosts ${hostname}`, { timeout: 3000 })
         const match = stdout.match(/^(\S+)/)
@@ -146,6 +171,29 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
       } catch {
         // getent failed
       }
+
+      // Strategy 2: nmblookup (NetBIOS forward lookup)
+      try {
+        const { stdout } = await execAsync(`nmblookup ${hostname}`, { timeout: 3000 })
+        const match = stdout.match(/^(\S+)\s+\S+<00>/m)
+        if (match?.[1] && net.isIP(match[1])) {
+          return match[1]
+        }
+      } catch {
+        // nmblookup not installed or failed
+      }
+
+      // Strategy 3: ping (uses system resolver which may include mDNS/LLMNR)
+      // Linux ping output: "PING hostname (192.168.1.1) ..."
+      try {
+        const { stdout } = await execAsync(`ping -c 1 -W 1 ${hostname}`, { timeout: 3000 })
+        const match = stdout.match(/PING\s+\S+\s+\((\S+)\)/)
+        if (match?.[1] && net.isIP(match[1])) {
+          return match[1]
+        }
+      } catch {
+        // ping failed
+      }
     }
   } catch {
     // All system resolution attempts failed
@@ -154,7 +202,8 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
 }
 
 // Resolve hostname to IP or do reverse lookup, with caching and fallbacks
-async function resolveAddress(address: string): Promise<{ resolvedIP: string | null; resolvedHostname: string | null }> {
+// machineNameHint: optional machine name to try as hostname when reverse DNS fails
+async function resolveAddress(address: string, machineNameHint?: string): Promise<{ resolvedIP: string | null; resolvedHostname: string | null }> {
   // Check cache first
   const cached = dnsCache.get(address)
   if (cached && Date.now() - cached.timestamp < DNS_CACHE_TTL) {
@@ -185,6 +234,16 @@ async function resolveAddress(address: string): Promise<{ resolvedIP: string | n
       // Strategy 2: If dns.reverse() failed, try system-level resolution
       if (!resolvedHostname) {
         resolvedHostname = await resolveHostnameViaSystem(address)
+      }
+
+      // Strategy 3: If all reverse lookups failed and we have a machine name hint,
+      // use it as the hostname. Machine names typically match their network hostnames.
+      // Only use names that look like valid hostnames (no spaces, reasonable length).
+      if (!resolvedHostname && machineNameHint) {
+        const hintName = machineNameHint.trim().toLowerCase()
+        if (hintName.length > 0 && hintName.length <= 63 && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(hintName)) {
+          resolvedHostname = hintName
+        }
       }
 
       if (resolvedHostname) {
@@ -720,7 +779,7 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
     // Ping each IP with retry logic and DNS resolution
     const pingResults = await Promise.all(
       machine.ips.map(async (ip: { id: string; label: string; ipAddress: string }) => {
-        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
+        const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress, machine.name)
         const pingTarget = resolvedIP || ip.ipAddress
 
         // Check ping cache first
@@ -771,13 +830,13 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
 })
 
 // Helper: ping a single machine's first IP with caching and retry
-async function pingMachineFirstIP(machine: { id: string; ips: Array<{ ipAddress: string }> }) {
+async function pingMachineFirstIP(machine: { id: string; name: string; ips: Array<{ ipAddress: string }> }) {
   if (!machine.ips || machine.ips.length === 0) {
     return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
   }
 
   const ip = machine.ips[0]
-  const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress)
+  const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress, machine.name)
   const pingTarget = resolvedIP || ip.ipAddress
 
   // Check ping cache first
