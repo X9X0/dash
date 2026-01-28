@@ -135,6 +135,32 @@ git pull --ff-only || {
 }
 log_success "Git pull complete"
 
+# Ensure network discovery packages are installed (mDNS/NetBIOS for hostname resolution)
+ensure_network_discovery() {
+    if ! dpkg -s avahi-daemon libnss-mdns winbind libnss-winbind &>/dev/null 2>&1 && \
+       ! rpm -q avahi nss-mdns samba-winbind &>/dev/null 2>&1; then
+        log_info "Installing network discovery packages (mDNS/NetBIOS)..."
+        if command -v apt-get &>/dev/null; then
+            $SUDO apt-get install -y avahi-daemon libnss-mdns winbind libnss-winbind
+        elif command -v dnf &>/dev/null; then
+            $SUDO dnf install -y avahi nss-mdns samba-winbind samba-winbind-clients
+        fi
+        $SUDO systemctl enable avahi-daemon 2>/dev/null || true
+        $SUDO systemctl start avahi-daemon 2>/dev/null || true
+        log_success "Network discovery packages installed"
+    fi
+
+    # Ensure nsswitch.conf has wins support
+    if [ -f /etc/nsswitch.conf ]; then
+        if ! grep "^hosts:" /etc/nsswitch.conf | grep -q "wins"; then
+            log_info "Updating /etc/nsswitch.conf for network name resolution..."
+            $SUDO sed -i 's/^hosts:.*/hosts:          files mdns4_minimal [NOTFOUND=return] dns wins/' /etc/nsswitch.conf
+            log_success "nsswitch.conf updated"
+        fi
+    fi
+}
+ensure_network_discovery
+
 # Install dependencies (in case package.json changed)
 log_info "Installing dependencies..."
 npm install

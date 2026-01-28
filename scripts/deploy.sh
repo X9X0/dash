@@ -164,6 +164,43 @@ install_system_deps() {
 }
 
 # =============================================================================
+# Install network discovery packages (mDNS/NetBIOS for hostname resolution)
+# =============================================================================
+install_network_discovery() {
+    log_info "Installing network discovery packages (mDNS/NetBIOS)..."
+
+    case $OS in
+        ubuntu|debian)
+            $SUDO apt-get install -y avahi-daemon libnss-mdns winbind libnss-winbind
+            ;;
+        fedora)
+            $SUDO dnf install -y avahi nss-mdns samba-winbind samba-winbind-clients
+            ;;
+    esac
+
+    # Enable and start avahi-daemon
+    $SUDO systemctl enable avahi-daemon 2>/dev/null || true
+    $SUDO systemctl start avahi-daemon 2>/dev/null || true
+
+    # Configure nsswitch.conf for mDNS and WINS resolution
+    if [ -f /etc/nsswitch.conf ]; then
+        local HOSTS_LINE
+        HOSTS_LINE=$(grep "^hosts:" /etc/nsswitch.conf)
+
+        # Only modify if 'wins' is not already present
+        if ! echo "$HOSTS_LINE" | grep -q "wins"; then
+            log_info "Updating /etc/nsswitch.conf for network name resolution..."
+            $SUDO sed -i 's/^hosts:.*/hosts:          files mdns4_minimal [NOTFOUND=return] dns wins/' /etc/nsswitch.conf
+            log_success "nsswitch.conf updated"
+        else
+            log_success "nsswitch.conf already configured for network discovery"
+        fi
+    fi
+
+    log_success "Network discovery packages installed"
+}
+
+# =============================================================================
 # Install nginx
 # =============================================================================
 install_nginx() {
@@ -546,6 +583,7 @@ main() {
     detect_os
     check_sudo
     install_system_deps
+    install_network_discovery
     install_node
     setup_project
     install_dependencies
