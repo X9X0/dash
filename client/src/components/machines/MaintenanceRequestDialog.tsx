@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Loader2, Wrench } from 'lucide-react'
+import { X, Loader2, Wrench, Image as ImageIcon } from 'lucide-react'
 import {
   Button,
   Label,
@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/common'
+import api from '@/services/api'
 import { maintenanceService } from '@/services/maintenance'
 import type { MaintenanceType, MaintenancePriority } from '@/types'
 
@@ -31,6 +32,7 @@ export function MaintenanceRequestDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [photos, setPhotos] = useState<File[]>([])
 
   const [formData, setFormData] = useState({
     type: 'repair' as MaintenanceType,
@@ -44,13 +46,27 @@ export function MaintenanceRequestDialog({
     setLoading(true)
 
     try {
-      await maintenanceService.create({
-        machineId,
-        type: formData.type,
-        priority: formData.priority,
-        description: formData.description,
-        status: 'submitted',
-      })
+      if (photos.length > 0) {
+        const fd = new FormData()
+        fd.append('machineId', machineId)
+        fd.append('type', formData.type)
+        fd.append('priority', formData.priority)
+        fd.append('description', formData.description)
+        fd.append('status', 'submitted')
+        photos.forEach((file) => fd.append('photos', file))
+
+        await api.post('/maintenance', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+      } else {
+        await maintenanceService.create({
+          machineId,
+          type: formData.type,
+          priority: formData.priority,
+          description: formData.description,
+          status: 'submitted',
+        })
+      }
 
       setSuccess(true)
       setFormData({
@@ -58,6 +74,7 @@ export function MaintenanceRequestDialog({
         priority: 'medium',
         description: '',
       })
+      setPhotos([])
 
       setTimeout(() => {
         setSuccess(false)
@@ -163,6 +180,41 @@ export function MaintenanceRequestDialog({
                   required
                   className="flex min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
+              </div>
+
+              {/* Photo upload */}
+              <div className="space-y-2">
+                <Label>Photos</Label>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 px-3 py-2 border rounded-md cursor-pointer hover:bg-accent text-sm">
+                    <ImageIcon className="h-4 w-4" />
+                    Choose Files
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => {
+                        if (e.target.files) setPhotos(Array.from(e.target.files))
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                  {photos.length > 0 && (
+                    <span className="text-xs text-muted-foreground">{photos.length} file(s) selected</span>
+                  )}
+                </div>
+                {photos.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {photos.map((file, i) => (
+                      <img
+                        key={i}
+                        src={URL.createObjectURL(file)}
+                        alt={`Preview ${i + 1}`}
+                        className="h-16 w-16 object-cover rounded border"
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-4">

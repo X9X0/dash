@@ -21,6 +21,7 @@ import { activityLogsRouter } from './routes/activityLogs.js'
 import { notificationsRouter } from './routes/notifications.js'
 import { setupSocket } from './socket/index.js'
 import { startAutoHourTracking } from './jobs/autoHourTracking.js'
+import { startClaimExpiry } from './jobs/claimExpiry.js'
 
 dotenv.config()
 
@@ -36,6 +37,9 @@ const io = new Server(httpServer, {
 // Middleware
 app.use(cors())
 app.use(express.json())
+
+// Serve uploaded files
+app.use('/uploads', express.static(join(__dirname, '../uploads')))
 
 // Make io accessible to routes
 app.set('io', io)
@@ -78,6 +82,7 @@ httpServer.listen(PORT, () => {
 
   // Start background jobs
   startAutoHourTracking()
+  startClaimExpiry(io)
 })
 
 export { io }

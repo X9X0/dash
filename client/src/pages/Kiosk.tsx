@@ -245,14 +245,20 @@ export function Kiosk() {
               return (
                 <div
                   key={machine.id}
-                  className="rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow overflow-hidden"
+                  className="rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
                 >
                   <div className={`h-3 ${getIndicatorColor(machine)}`} />
-                  <div className="p-4">
+                  <div className="p-4 flex-1">
+                  {/* Icon + statusNote row */}
                   <div className="flex items-start justify-between mb-3">
                     <div className={`p-2 rounded-lg bg-muted ${getStatusTextColor(machine)}`}>
                       {getMachineIcon(machine.type?.category)}
                     </div>
+                    {machine.statusNote && (
+                      <p className="text-[10px] italic text-muted-foreground text-right max-w-[55%] line-clamp-2">
+                        {machine.statusNote}
+                      </p>
+                    )}
                   </div>
                   <h3 className="font-semibold truncate" title={machine.name}>
                     {machine.name}
@@ -263,6 +269,12 @@ export function Kiosk() {
                   <p className={`text-sm font-medium mt-2 ${getStatusTextColor(machine)}`}>
                     {getStatusText(machine)}
                   </p>
+                  {/* Claimer display */}
+                  {machine.claimedBy && (
+                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mt-1">
+                      In use by {machine.claimedBy.name}
+                    </p>
+                  )}
                   {/* Network Info - IP/Hostname */}
                   {networkInfo && (networkInfo.ip || networkInfo.hostname) && (
                     <div className="mt-2 text-xs font-mono">
@@ -278,9 +290,10 @@ export function Kiosk() {
                       )}
                     </div>
                   )}
-                  {/* Network Status - Prominent indicator */}
+                  </div>
+                  {/* Network Status - full width bottom bar */}
                   {hasNetworkConfig && (
-                    <div className={`flex items-center gap-2 mt-2 px-2 py-1 rounded-md text-xs font-semibold ${
+                    <div className={`flex items-center justify-center gap-2 py-1.5 text-xs font-semibold ${
                       isReachable
                         ? 'bg-green-500/20 text-green-600 dark:text-green-400'
                         : 'bg-red-500/20 text-red-600 dark:text-red-400'
@@ -298,12 +311,6 @@ export function Kiosk() {
                       )}
                     </div>
                   )}
-                  {machine.statusNote && (
-                    <p className="mt-2 text-xs italic text-muted-foreground line-clamp-2">
-                      {machine.statusNote}
-                    </p>
-                  )}
-                  </div>
                 </div>
               )
             })}

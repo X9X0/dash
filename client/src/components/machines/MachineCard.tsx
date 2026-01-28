@@ -51,6 +51,7 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
       <Card className="group hover:shadow-md transition-shadow cursor-pointer overflow-hidden">
         <div className={`h-3 ${statusColors[machine.status]}`} />
         <CardContent className="p-4">
+          {/* Icon + Name/Model (left) | statusNote (right) */}
           <div className="flex items-start gap-4">
             <div className="p-3 rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
               {getMachineIcon(machine.type)}
@@ -61,8 +62,14 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
                 {machine.model}
               </p>
             </div>
+            {machine.statusNote && (
+              <p className="text-xs italic text-muted-foreground text-right max-w-[40%] line-clamp-2 shrink-0">
+                {machine.statusNote}
+              </p>
+            )}
           </div>
 
+          {/* Location, hours, network info */}
           <div className="mt-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <MapPin className="h-3.5 w-3.5" />
@@ -72,7 +79,6 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
               <Clock className="h-3.5 w-3.5" />
               <span>{machine.hourMeter.toLocaleString()} hours</span>
             </div>
-            {/* Network Info - IP/Hostname */}
             {(resolvedHostname || resolvedIP) && (
               <div className="text-xs font-mono truncate space-y-0.5">
                 {resolvedHostname && (
@@ -89,44 +95,45 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
             )}
           </div>
 
-          {machine.statusNote && (
-            <p className="mt-2 text-xs italic text-muted-foreground line-clamp-2">
-              {machine.statusNote}
+          {/* Claimer display */}
+          {machine.claimedBy && (
+            <p className="mt-2 text-xs font-medium text-blue-600 dark:text-blue-400">
+              In use by {machine.claimedBy.name}
             </p>
           )}
 
+          {/* Status badge + type name */}
           <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Badge variant={statusBadgeVariants[machine.status]}>
-                {machine.status.replace('_', ' ')}
-              </Badge>
-              {/* Network Status Indicator */}
-              {hasNetworkConfig && (
-                <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                  isReachable
-                    ? 'bg-green-500/20 text-green-600 dark:text-green-400'
-                    : 'bg-red-500/20 text-red-600 dark:text-red-400'
-                }`}>
-                  {isReachable ? (
-                    <>
-                      <Wifi className="h-3 w-3" />
-                      <span>Online</span>
-                    </>
-                  ) : (
-                    <>
-                      <WifiOff className="h-3 w-3" />
-                      <span>Offline</span>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+            <Badge variant={statusBadgeVariants[machine.status]}>
+              {machine.status.replace('_', ' ')}
+            </Badge>
             {machine.type && (
               <span className="text-xs text-muted-foreground">
                 {machine.type.name}
               </span>
             )}
           </div>
+
+          {/* Wifi Online/Offline - full width bottom bar */}
+          {hasNetworkConfig && (
+            <div className={`mt-3 flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-medium ${
+              isReachable
+                ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                : 'bg-red-500/20 text-red-600 dark:text-red-400'
+            }`}>
+              {isReachable ? (
+                <>
+                  <Wifi className="h-3 w-3" />
+                  <span>Online</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="h-3 w-3" />
+                  <span>Offline</span>
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </Link>

@@ -20,8 +20,13 @@ import {
   Check,
   AlertTriangle,
   ArrowRightLeft,
+  Lock,
+  Unlock,
+  Paperclip,
+  Upload,
+  FileText,
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, formatDistanceToNow } from 'date-fns'
 import {
   Button,
   Card,
@@ -44,7 +49,8 @@ import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
 import { MaintenanceRequestDialog } from '@/components/machines/MaintenanceRequestDialog'
-import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog, MaintenanceRequest } from '@/types'
+import { EditMaintenanceRequestDialog } from '@/components/machines/EditMaintenanceRequestDialog'
+import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment } from '@/types'
 
 interface MachineDetailData extends Machine {
   statusLogs?: MachineStatusLog[]
@@ -81,11 +87,23 @@ const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warnin
   damaged_but_usable: 'caution',
 }
 
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'
+
+function getPhotoUrl(path: string): string {
+  if (path.startsWith('http')) return path
+  return `${API_BASE}${path}`
+}
+
+function isImageFile(fileType: string): boolean {
+  return fileType.startsWith('image/')
+}
+
 export function MachineDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
+  const isOperator = user?.role === 'admin' || user?.role === 'operator'
 
   const [machine, setMachine] = useState<MachineDetailData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -112,15 +130,29 @@ export function MachineDetail() {
   // Maintenance request state
   const [showMaintenanceRequest, setShowMaintenanceRequest] = useState(false)
 
+  // Maintenance editing state
+  const [editingMaintenanceRequest, setEditingMaintenanceRequest] = useState<MaintenanceRequest | null>(null)
+
   // Status note state
   const [editingStatusNote, setEditingStatusNote] = useState(false)
   const [statusNoteValue, setStatusNoteValue] = useState('')
   const [savingStatusNote, setSavingStatusNote] = useState(false)
 
+  // Claim state
+  const [claimDuration, setClaimDuration] = useState(60)
+  const [claiming, setClaiming] = useState(false)
+  const [releasing, setReleasing] = useState(false)
+
+  // Attachments state
+  const [attachments, setAttachments] = useState<MachineAttachment[]>([])
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [attachmentDescription, setAttachmentDescription] = useState('')
+
   useEffect(() => {
     if (id) {
       fetchMachine()
       fetchTimeline()
+      fetchAttachments()
     }
   }, [id])
 
@@ -143,9 +175,17 @@ export function MachineDetail() {
       const timeline = await machineService.getTimeline(id!)
       setServiceRecords(timeline.serviceRecords)
       setMaintenanceRequests(timeline.maintenanceRequests)
-      // statusLogs come from the machine object already
     } catch (error) {
       console.error('Failed to fetch timeline:', error)
+    }
+  }
+
+  const fetchAttachments = async () => {
+    try {
+      const data = await machineService.getAttachments(id!)
+      setAttachments(data)
+    } catch (error) {
+      console.error('Failed to fetch attachments:', error)
     }
   }
 
@@ -232,12 +272,10 @@ export function MachineDetail() {
 
   const handleServiceRecordSaved = (record: ServiceRecord) => {
     if (editingServiceRecord) {
-      // Update existing record
       setServiceRecords((prev) =>
         prev.map((r) => (r.id === record.id ? record : r))
       )
     } else {
-      // Add new record at the beginning
       setServiceRecords((prev) => [record, ...prev])
     }
     setEditingServiceRecord(null)
@@ -255,6 +293,68 @@ export function MachineDetail() {
       setServiceRecords((prev) => prev.filter((r) => r.id !== recordId))
     } catch (error) {
       console.error('Failed to delete service record:', error)
+    }
+  }
+
+  // Claim handlers
+  const handleClaim = async () => {
+    if (!machine) return
+    setClaiming(true)
+    try {
+      const updated = await machineService.claimMachine(machine.id, claimDuration)
+      setMachine((prev) => prev ? { ...prev, ...updated } : null)
+    } catch (error) {
+      console.error('Failed to claim machine:', error)
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  const handleRelease = async () => {
+    if (!machine) return
+    setReleasing(true)
+    try {
+      const updated = await machineService.releaseMachine(machine.id)
+      setMachine((prev) => prev ? { ...prev, ...updated } : null)
+    } catch (error) {
+      console.error('Failed to release machine:', error)
+    } finally {
+      setReleasing(false)
+    }
+  }
+
+  // Maintenance edit handler
+  const handleMaintenanceSaved = (updated: MaintenanceRequest) => {
+    setMaintenanceRequests((prev) =>
+      prev.map((r) => (r.id === updated.id ? updated : r))
+    )
+    setEditingMaintenanceRequest(null)
+  }
+
+  // Attachment handlers
+  const handleUploadAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !id) return
+    setUploadingAttachment(true)
+    try {
+      const attachment = await machineService.uploadAttachment(id, file, attachmentDescription || undefined)
+      setAttachments((prev) => [attachment, ...prev])
+      setAttachmentDescription('')
+    } catch (error) {
+      console.error('Failed to upload attachment:', error)
+    } finally {
+      setUploadingAttachment(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!confirm('Delete this attachment?') || !id) return
+    try {
+      await machineService.deleteAttachment(id, attachmentId)
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
+    } catch (error) {
+      console.error('Failed to delete attachment:', error)
     }
   }
 
@@ -276,6 +376,9 @@ export function MachineDetail() {
       </div>
     )
   }
+
+  const canClaim = isOperator && (!machine.claimedById || machine.claimedById === user?.id) && machine.status === 'available'
+  const canRelease = isOperator && machine.claimedById && (machine.claimedById === user?.id || isAdmin)
 
   return (
     <div className="space-y-6">
@@ -303,14 +406,47 @@ export function MachineDetail() {
               )}
             </div>
             <p className="text-muted-foreground">{machine.model}</p>
+            {/* Claim info */}
+            {machine.claimedBy && machine.claimExpiresAt && (
+              <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">
+                Claimed by {machine.claimedBy.name} · Expires {formatDistanceToNow(parseISO(machine.claimExpiresAt), { addSuffix: true })}
+              </p>
+            )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={pingMachine} disabled={pinging}>
             {pinging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
             Ping
           </Button>
-          {(user?.role === 'admin' || user?.role === 'operator') && (
+          {/* Claim/Release buttons */}
+          {canClaim && !machine.claimedById && (
+            <div className="flex items-center gap-1">
+              <Select value={String(claimDuration)} onValueChange={(v) => setClaimDuration(Number(v))}>
+                <SelectTrigger className="w-[100px] h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">30 min</SelectItem>
+                  <SelectItem value="60">1 hr</SelectItem>
+                  <SelectItem value="120">2 hr</SelectItem>
+                  <SelectItem value="240">4 hr</SelectItem>
+                  <SelectItem value="480">8 hr</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="default" onClick={handleClaim} disabled={claiming}>
+                {claiming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                Claim
+              </Button>
+            </div>
+          )}
+          {canRelease && (
+            <Button variant="outline" onClick={handleRelease} disabled={releasing}>
+              {releasing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
+              Release
+            </Button>
+          )}
+          {isOperator && (
             <Button variant="outline" onClick={() => setShowMaintenanceRequest(true)}>
               <Wrench className="h-4 w-4" />
               Maintenance
@@ -351,7 +487,7 @@ export function MachineDetail() {
                   <p className="text-sm text-muted-foreground">Hour Meter</p>
                   <p className="font-medium">{machine.hourMeter.toLocaleString()} hours</p>
                 </div>
-                {(user?.role === 'admin' || user?.role === 'operator') && (
+                {isOperator && (
                   <Button variant="ghost" size="sm" onClick={() => setShowAddHours(true)}>
                     <Timer className="h-4 w-4 mr-1" />
                     Log
@@ -389,7 +525,7 @@ export function MachineDetail() {
             <div className="pt-4 border-t">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-sm text-muted-foreground">Status Note</p>
-                {(user?.role === 'admin' || user?.role === 'operator') && !editingStatusNote && (
+                {isOperator && !editingStatusNote && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -426,7 +562,7 @@ export function MachineDetail() {
             </div>
 
             {/* Status Control */}
-            {(user?.role === 'admin' || user?.role === 'operator') && (
+            {isOperator && (
               <div className="pt-4 border-t">
                 <p className="text-sm text-muted-foreground mb-2">Change Status</p>
                 <div className="flex items-center gap-2">
@@ -574,7 +710,7 @@ export function MachineDetail() {
         <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Service & Maintenance</CardTitle>
-            {(user?.role === 'admin' || user?.role === 'operator') && (
+            {isOperator && (
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowMaintenanceRequest(true)}>
                   <AlertTriangle className="h-4 w-4 mr-1" />
@@ -589,7 +725,6 @@ export function MachineDetail() {
           </CardHeader>
           <CardContent>
             {(() => {
-              // Build unified timeline entries
               type TimelineEntry =
                 | { type: 'service'; date: string; data: ServiceRecord }
                 | { type: 'maintenance'; date: string; data: MaintenanceRequest }
@@ -617,7 +752,7 @@ export function MachineDetail() {
                 return (
                   <div className="flex flex-col items-center justify-center py-8">
                     <p className="text-muted-foreground mb-2">No history yet</p>
-                    {(user?.role === 'admin' || user?.role === 'operator') && (
+                    {isOperator && (
                       <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
                         <Plus className="h-4 w-4 mr-1" />
                         Add First Record
@@ -650,12 +785,26 @@ export function MachineDetail() {
                               <p className="text-xs text-muted-foreground mt-1">Parts: {record.partsUsed}</p>
                             )}
                             <p className="text-xs text-muted-foreground mt-1">By {record.performedBy}</p>
+                            {/* Photos */}
+                            {record.photos && record.photos.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {record.photos.map((photo, i) => (
+                                  <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                                    <img
+                                      src={getPhotoUrl(photo)}
+                                      alt={`Photo ${i + 1}`}
+                                      className="h-16 w-16 object-cover rounded border hover:opacity-80"
+                                    />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {record.cost != null && record.cost > 0 && (
                               <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
                             )}
-                            {(user?.role === 'admin' || user?.role === 'operator') && (
+                            {isOperator && (
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditServiceRecord(record)}>
                                   <Edit className="h-3 w-3" />
@@ -673,7 +822,7 @@ export function MachineDetail() {
                     if (entry.type === 'maintenance') {
                       const request = entry.data as MaintenanceRequest
                       return (
-                        <div key={`maintenance-${request.id}`} className="flex items-start gap-3 p-3 rounded-lg border">
+                        <div key={`maintenance-${request.id}`} className="flex items-start gap-3 p-3 rounded-lg border group">
                           <div className="mt-0.5">
                             <AlertTriangle className="h-4 w-4 text-orange-500" />
                           </div>
@@ -700,7 +849,29 @@ export function MachineDetail() {
                                 </span>
                               )}
                             </div>
+                            {/* Photos */}
+                            {request.photos && request.photos.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {request.photos.map((photo, i) => (
+                                  <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                                    <img
+                                      src={getPhotoUrl(photo)}
+                                      alt={`Photo ${i + 1}`}
+                                      className="h-16 w-16 object-cover rounded border hover:opacity-80"
+                                    />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
+                          {/* Edit button for operators */}
+                          {isOperator && (
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingMaintenanceRequest(request)}>
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       )
                     }
@@ -733,11 +904,88 @@ export function MachineDetail() {
           </CardContent>
         </Card>
 
+        {/* Attachments */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Paperclip className="h-4 w-4" />
+              Attachments
+            </CardTitle>
+            {isOperator && (
+              <label className="cursor-pointer">
+                <Button variant="ghost" size="sm" asChild>
+                  <span>
+                    {uploadingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  </span>
+                </Button>
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleUploadAttachment}
+                  accept="image/*,.pdf,.txt,.zip"
+                  disabled={uploadingAttachment}
+                />
+              </label>
+            )}
+          </CardHeader>
+          <CardContent>
+            {attachments.length > 0 ? (
+              <div className="space-y-2">
+                {attachments.map((att) => (
+                  <div key={att.id} className="flex items-center gap-3 p-2 rounded-lg border group">
+                    {isImageFile(att.fileType) ? (
+                      <a href={getPhotoUrl(`/uploads/${att.filename}`)} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={getPhotoUrl(`/uploads/${att.filename}`)}
+                          alt={att.originalName}
+                          className="h-10 w-10 object-cover rounded"
+                        />
+                      </a>
+                    ) : (
+                      <FileText className="h-10 w-10 text-muted-foreground p-2" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={getPhotoUrl(`/uploads/${att.filename}`)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium hover:underline truncate block"
+                      >
+                        {att.originalName}
+                      </a>
+                      <p className="text-xs text-muted-foreground">
+                        {att.user?.name} · {format(parseISO(att.createdAt), 'MMM d, yyyy')}
+                      </p>
+                      {att.description && (
+                        <p className="text-xs text-muted-foreground">{att.description}</p>
+                      )}
+                    </div>
+                    {(att.userId === user?.id || isAdmin) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteAttachment(att.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No attachments
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Custom Fields */}
         <CustomFieldsCard
           machineId={machine.id}
           machineType={machine.type}
-          canEdit={user?.role === 'admin' || user?.role === 'operator'}
+          canEdit={isOperator}
         />
       </div>
 
@@ -770,7 +1018,18 @@ export function MachineDetail() {
         onOpenChange={setShowMaintenanceRequest}
         machineId={machine.id}
         machineName={machine.name}
+        onRequestCreated={() => fetchTimeline()}
       />
+
+      {/* Edit Maintenance Request Dialog */}
+      {editingMaintenanceRequest && (
+        <EditMaintenanceRequestDialog
+          open={!!editingMaintenanceRequest}
+          onOpenChange={(open) => { if (!open) setEditingMaintenanceRequest(null) }}
+          request={editingMaintenanceRequest}
+          onSave={handleMaintenanceSaved}
+        />
+      )}
     </div>
   )
 }

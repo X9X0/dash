@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import { authenticate, requireOperator, AuthRequest } from '../middleware/auth.js'
+import { upload } from '../middleware/upload.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -75,16 +76,28 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 })
 
 // Update service record
-router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
+router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
     const data = updateServiceRecordSchema.parse(req.body)
+
+    const existing = await prisma.serviceRecord.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({ error: 'Service record not found' })
+    }
 
     const updateData: Record<string, unknown> = { ...data }
     if (data.performedAt) {
       updateData.performedAt = new Date(data.performedAt)
     }
-    if (data.photos !== undefined) {
+
+    // Handle file uploads - merge with existing photos
+    const files = req.files as Express.Multer.File[] | undefined
+    if (files && files.length > 0) {
+      const newPhotos = files.map((f) => `/uploads/${f.filename}`)
+      const existingPhotos = existing.photos ? JSON.parse(existing.photos) : []
+      updateData.photos = JSON.stringify([...existingPhotos, ...newPhotos])
+    } else if (data.photos !== undefined) {
       updateData.photos = data.photos ? JSON.stringify(data.photos) : null
     }
 

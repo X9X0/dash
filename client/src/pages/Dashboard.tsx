@@ -105,24 +105,28 @@ export function Dashboard() {
       value: machines.length,
       icon: <Cpu className="h-5 w-5" />,
       color: 'text-blue-500',
+      link: '/machines',
     },
     {
       label: 'Ready',
       value: readyCount,
       icon: <Wifi className="h-5 w-5" />,
       color: 'text-green-500',
+      link: '/machines',
     },
     {
       label: 'Today\'s Reservations',
       value: todayReservations.length,
       icon: <Calendar className="h-5 w-5" />,
       color: 'text-purple-500',
+      link: '/calendar',
     },
     {
       label: 'Pending Repairs',
       value: pendingMaintenance.length,
       icon: <Wrench className="h-5 w-5" />,
       color: 'text-orange-500',
+      link: '/maintenance',
     },
   ]
 
@@ -133,20 +137,22 @@ export function Dashboard() {
         <p className="text-muted-foreground">Overview of your machines and activities</p>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid - clickable links */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="flex items-center gap-4 p-6">
-              <div className={`p-2 rounded-lg bg-muted ${stat.color}`}>
-                {stat.icon}
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stat.value}</p>
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
-              </div>
-            </CardContent>
-          </Card>
+          <Link key={stat.label} to={stat.link} className="block hover:opacity-80 transition-opacity">
+            <Card className="hover:shadow-md transition-shadow">
+              <CardContent className="flex items-center gap-4 p-6">
+                <div className={`p-2 rounded-lg bg-muted ${stat.color}`}>
+                  {stat.icon}
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-sm text-muted-foreground">{stat.label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 
@@ -166,10 +172,6 @@ export function Dashboard() {
                 const isReachable = status?.reachable
                 const hasNetworkConfig = status !== undefined
 
-                // Green only if available AND reachable
-                // Yellow if in_use/maintenance, or available but unreachable
-                // Red if error
-                // Gray if offline or no network config
                 const getIndicatorColor = () => {
                   if (machine.status === 'available' && isReachable === true) return 'bg-green-500'
                   if (machine.status === 'error') return 'bg-red-500'
@@ -200,17 +202,6 @@ export function Dashboard() {
                   >
                     <div className={`h-3 ${getIndicatorColor()}`} />
                     <div className="flex items-center gap-3 p-3">
-                    <div className="relative">
-                      {hasNetworkConfig && (
-                        <div>
-                          {isReachable ? (
-                            <Wifi className="h-3.5 w-3.5 text-green-600" />
-                          ) : (
-                            <WifiOff className="h-3.5 w-3.5 text-red-500" />
-                          )}
-                        </div>
-                      )}
-                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{machine.name}</p>
                       <p className="text-xs text-muted-foreground">{machine.location}</p>
@@ -229,7 +220,7 @@ export function Dashboard() {
                         </div>
                       )}
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <span className={`text-xs font-medium capitalize ${
                         machine.status === 'available' && isReachable === true ? 'text-green-600' :
                         machine.status === 'error' ? 'text-red-500' :
@@ -239,13 +230,39 @@ export function Dashboard() {
                       }`}>
                         {getStatusText()}
                       </span>
+                      {machine.statusNote && (
+                        <p className="text-[10px] italic text-muted-foreground truncate max-w-[80px]" title={machine.statusNote}>
+                          {machine.statusNote}
+                        </p>
+                      )}
                       <p className="text-[10px] text-muted-foreground">{machine.type?.name}</p>
                     </div>
                     </div>
-                    {machine.statusNote && (
-                      <p className="px-3 pb-2 text-[10px] italic text-muted-foreground line-clamp-2">
-                        {machine.statusNote}
+                    {/* Claimer display */}
+                    {machine.claimedBy && (
+                      <p className="px-3 pb-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                        In use by {machine.claimedBy.name}
                       </p>
+                    )}
+                    {/* Wifi indicator at bottom */}
+                    {hasNetworkConfig && (
+                      <div className={`flex items-center justify-center gap-1 py-1 text-[10px] font-medium ${
+                        isReachable
+                          ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                          : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                      }`}>
+                        {isReachable ? (
+                          <>
+                            <Wifi className="h-2.5 w-2.5" />
+                            <span>Online</span>
+                          </>
+                        ) : (
+                          <>
+                            <WifiOff className="h-2.5 w-2.5" />
+                            <span>Offline</span>
+                          </>
+                        )}
+                      </div>
                     )}
                   </Link>
                 )

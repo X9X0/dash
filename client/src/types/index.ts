@@ -55,6 +55,10 @@ export interface Machine {
   statusNote: string | null
   autoHourTracking: boolean
   lastPingAt: string | null
+  claimedById: string | null
+  claimedBy?: { id: string; name: string } | null
+  claimedAt: string | null
+  claimExpiresAt: string | null
   createdAt: string
   ips?: MachineIP[]
   customFields?: MachineCustomField[]
@@ -115,6 +119,7 @@ export interface MaintenanceRequest {
   priority: MaintenancePriority
   description: string
   status: MaintenanceStatus
+  photos?: string[]
   createdAt: string
   resolvedAt: string | null
 }
@@ -163,6 +168,18 @@ export interface Notification {
   title: string
   message: string
   read: boolean
+  createdAt: string
+}
+
+export interface MachineAttachment {
+  id: string
+  machineId: string
+  userId: string
+  user?: { id: string; name: string }
+  filename: string
+  originalName: string
+  fileType: string
+  description: string | null
   createdAt: string
 }
 

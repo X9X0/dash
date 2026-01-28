@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import { authenticate, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
+import { upload } from '../middleware/upload.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -74,9 +75,13 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 })
 
 // Create maintenance request
-router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
   try {
     const data = createMaintenanceSchema.parse(req.body)
+
+    // Handle file uploads
+    const files = req.files as Express.Multer.File[] | undefined
+    const photoPaths = files?.map((f) => `/uploads/${f.filename}`) || []
 
     const request = await prisma.maintenanceRequest.create({
       data: {
@@ -86,6 +91,7 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
         priority: data.priority || 'medium',
         description: data.description,
         status: data.status || 'submitted',
+        photos: photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
       },
       include: {
         machine: { select: { id: true, name: true, location: true } },
@@ -123,8 +129,8 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
   }
 })
 
-// Update maintenance request (admin only for status changes)
-router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
+// Update maintenance request (operators can edit all fields on any ticket)
+router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
     const data = updateMaintenanceSchema.parse(req.body)
@@ -134,19 +140,17 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Request not found' })
     }
 
-    // Only admin can change status
-    if (data.status && req.user!.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can change status' })
-    }
-
-    // Only owner or admin can update other fields
-    if (existing.userId !== req.user!.id && req.user!.role !== 'admin') {
-      return res.status(403).json({ error: 'Not authorized' })
-    }
-
     const updateData: Record<string, unknown> = { ...data }
     if (data.status === 'resolved') {
       updateData.resolvedAt = new Date()
+    }
+
+    // Handle file uploads
+    const files = req.files as Express.Multer.File[] | undefined
+    if (files && files.length > 0) {
+      const newPhotos = files.map((f) => `/uploads/${f.filename}`)
+      const existingPhotos = existing.photos ? JSON.parse(existing.photos) : []
+      updateData.photos = JSON.stringify([...existingPhotos, ...newPhotos])
     }
 
     const request = await prisma.maintenanceRequest.update({
@@ -170,7 +174,10 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
       })
     }
 
-    res.json(request)
+    res.json({
+      ...request,
+      photos: request.photos ? JSON.parse(request.photos) : [],
+    })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })

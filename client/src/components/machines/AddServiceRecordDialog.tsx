@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Loader2, Wrench } from 'lucide-react'
+import { X, Loader2, Wrench, Image as ImageIcon } from 'lucide-react'
 import {
   Button,
   Input,
@@ -41,6 +41,7 @@ export function AddServiceRecordDialog({
   const isEditing = !!editingRecord
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [photos, setPhotos] = useState<File[]>([])
   const [formData, setFormData] = useState({
     type: (editingRecord?.type || 'repair') as ServiceType,
     description: editingRecord?.description || '',
@@ -63,6 +64,7 @@ export function AddServiceRecordDialog({
       performedAt: new Date().toISOString().split('T')[0],
       notes: '',
     })
+    setPhotos([])
     setError('')
   }
 
@@ -82,29 +84,57 @@ export function AddServiceRecordDialog({
     setLoading(true)
 
     try {
-      const payload = {
-        type: formData.type,
-        description: formData.description.trim(),
-        partsUsed: formData.partsUsed.trim() || null,
-        cost: formData.cost ? parseFloat(formData.cost) : null,
-        performedBy: formData.performedBy.trim(),
-        performedAt: formData.performedAt,
-        notes: formData.notes.trim() || null,
-      }
-
       let record: ServiceRecord
-      if (isEditing) {
-        const { data } = await api.patch<ServiceRecord>(
-          `/service-records/${editingRecord.id}`,
-          payload
-        )
-        record = data
+      if (photos.length > 0) {
+        const fd = new FormData()
+        fd.append('type', formData.type)
+        fd.append('description', formData.description.trim())
+        if (formData.partsUsed.trim()) fd.append('partsUsed', formData.partsUsed.trim())
+        if (formData.cost) fd.append('cost', formData.cost)
+        fd.append('performedBy', formData.performedBy.trim())
+        fd.append('performedAt', formData.performedAt)
+        if (formData.notes.trim()) fd.append('notes', formData.notes.trim())
+        photos.forEach((file) => fd.append('photos', file))
+
+        if (isEditing) {
+          const { data } = await api.patch<ServiceRecord>(
+            `/service-records/${editingRecord.id}`,
+            fd,
+            { headers: { 'Content-Type': 'multipart/form-data' } }
+          )
+          record = data
+        } else {
+          const { data } = await api.post<ServiceRecord>(
+            `/machines/${machineId}/service-history`,
+            fd,
+            { headers: { 'Content-Type': 'multipart/form-data' } }
+          )
+          record = data
+        }
       } else {
-        const { data } = await api.post<ServiceRecord>(
-          `/machines/${machineId}/service-history`,
-          payload
-        )
-        record = data
+        const payload = {
+          type: formData.type,
+          description: formData.description.trim(),
+          partsUsed: formData.partsUsed.trim() || null,
+          cost: formData.cost ? parseFloat(formData.cost) : null,
+          performedBy: formData.performedBy.trim(),
+          performedAt: formData.performedAt,
+          notes: formData.notes.trim() || null,
+        }
+
+        if (isEditing) {
+          const { data } = await api.patch<ServiceRecord>(
+            `/service-records/${editingRecord.id}`,
+            payload
+          )
+          record = data
+        } else {
+          const { data } = await api.post<ServiceRecord>(
+            `/machines/${machineId}/service-history`,
+            payload
+          )
+          record = data
+        }
       }
 
       onSave(record)
@@ -232,6 +262,41 @@ export function AddServiceRecordDialog({
                   placeholder="Additional notes..."
                 />
               </div>
+            </div>
+
+            {/* Photo upload */}
+            <div className="space-y-2">
+              <Label>Photos</Label>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 px-3 py-2 border rounded-md cursor-pointer hover:bg-accent text-sm">
+                  <ImageIcon className="h-4 w-4" />
+                  Choose Files
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      if (e.target.files) setPhotos(Array.from(e.target.files))
+                    }}
+                    className="hidden"
+                  />
+                </label>
+                {photos.length > 0 && (
+                  <span className="text-xs text-muted-foreground">{photos.length} file(s) selected</span>
+                )}
+              </div>
+              {photos.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {photos.map((file, i) => (
+                    <img
+                      key={i}
+                      src={URL.createObjectURL(file)}
+                      alt={`Preview ${i + 1}`}
+                      className="h-16 w-16 object-cover rounded border"
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 pt-4">

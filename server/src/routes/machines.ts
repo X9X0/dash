@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import dns from 'dns'
 import net from 'net'
 import { authenticate, requireAdmin, requireOperator, AuthRequest } from '../middleware/auth.js'
+import { upload } from '../middleware/upload.js'
 
 const execAsync = promisify(exec)
 const dnsLookup = promisify(dns.lookup)
@@ -386,6 +387,7 @@ router.get('/public', async (req, res) => {
       include: {
         type: true,
         ips: true,
+        claimedBy: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },
     })
@@ -404,6 +406,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         type: true,
         ips: true,
         customFields: true,
+        claimedBy: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },
     })
@@ -424,6 +427,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         type: true,
         ips: true,
         customFields: true,
+        claimedBy: { select: { id: true, name: true } },
         statusLogs: {
           orderBy: { timestamp: 'desc' },
           take: 50,
@@ -670,7 +674,17 @@ router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
       }),
     ])
 
-    res.json({ serviceRecords, maintenanceRequests, statusLogs })
+    // Parse photos JSON for both service records and maintenance requests
+    const parsedServiceRecords = serviceRecords.map((r) => ({
+      ...r,
+      photos: r.photos ? JSON.parse(r.photos) : [],
+    }))
+    const parsedMaintenanceRequests = maintenanceRequests.map((r) => ({
+      ...r,
+      photos: r.photos ? JSON.parse(r.photos as string) : [],
+    }))
+
+    res.json({ serviceRecords: parsedServiceRecords, maintenanceRequests: parsedMaintenanceRequests, statusLogs })
   } catch (error) {
     console.error('Get timeline error:', error)
     res.status(500).json({ error: 'Failed to get timeline' })
@@ -706,10 +720,21 @@ router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) =
 })
 
 // Add service record
-router.post('/:id/service-history', authenticate, requireOperator, async (req: AuthRequest, res) => {
+router.post('/:id/service-history', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
     const data = req.body
+
+    // Handle file uploads
+    const files = req.files as Express.Multer.File[] | undefined
+    const photoPaths = files?.map((f) => `/uploads/${f.filename}`) || []
+    // Also accept JSON photo paths from body (for backward compatibility)
+    if (data.photos && typeof data.photos === 'string') {
+      try {
+        const parsed = JSON.parse(data.photos)
+        if (Array.isArray(parsed)) photoPaths.push(...parsed)
+      } catch { /* not JSON */ }
+    }
 
     const record = await prisma.serviceRecord.create({
       data: {
@@ -718,11 +743,11 @@ router.post('/:id/service-history', authenticate, requireOperator, async (req: A
         type: data.type,
         description: data.description,
         partsUsed: data.partsUsed || null,
-        cost: data.cost || null,
+        cost: data.cost ? parseFloat(data.cost) : null,
         performedBy: data.performedBy,
         performedAt: new Date(data.performedAt),
         notes: data.notes || null,
-        photos: data.photos ? JSON.stringify(data.photos) : null,
+        photos: photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
       },
       include: { user: { select: { id: true, name: true } } },
     })
@@ -741,6 +766,197 @@ router.post('/:id/service-history', authenticate, requireOperator, async (req: A
   } catch (error) {
     console.error('Add service record error:', error)
     res.status(500).json({ error: 'Failed to add service record' })
+  }
+})
+
+// Claim machine
+router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const schema = z.object({ duration: z.number().min(5).max(1440).optional() })
+    const { duration = 60 } = schema.parse(req.body)
+
+    const machine = await prisma.machine.findUnique({ where: { id } })
+    if (!machine) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
+
+    // Reject if already claimed by someone else
+    if (machine.claimedById && machine.claimedById !== req.user!.id) {
+      // Check if claim is expired
+      if (machine.claimExpiresAt && new Date(machine.claimExpiresAt) > new Date()) {
+        return res.status(409).json({ error: 'Machine is already claimed by another user' })
+      }
+    }
+
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + duration * 60 * 1000)
+
+    const updated = await prisma.machine.update({
+      where: { id },
+      data: {
+        claimedById: req.user!.id,
+        claimedAt: now,
+        claimExpiresAt: expiresAt,
+        status: 'in_use',
+      },
+      include: {
+        type: true,
+        claimedBy: { select: { id: true, name: true } },
+      },
+    })
+
+    // Log status change
+    await prisma.machineStatusLog.create({
+      data: { machineId: id, status: 'in_use', source: 'manual' },
+    })
+
+    // Log activity
+    await prisma.activityLog.create({
+      data: {
+        machineId: id,
+        userId: req.user!.id,
+        action: 'machine_claimed',
+        details: `Claimed for ${duration} minutes`,
+      },
+    })
+
+    const io = req.app.get('io')
+    io.emit('machine:claimed', { machineId: id, claimedBy: { id: req.user!.id, name: req.user!.name }, expiresAt: expiresAt.toISOString() })
+
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    console.error('Claim machine error:', error)
+    res.status(500).json({ error: 'Failed to claim machine' })
+  }
+})
+
+// Release machine claim
+router.patch('/:id/release', authenticate, requireOperator, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+
+    const machine = await prisma.machine.findUnique({ where: { id } })
+    if (!machine) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
+
+    // Allow if claimer is current user OR user is admin
+    if (machine.claimedById !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Only the claimer or an admin can release this machine' })
+    }
+
+    const updated = await prisma.machine.update({
+      where: { id },
+      data: {
+        claimedById: null,
+        claimedAt: null,
+        claimExpiresAt: null,
+        status: 'available',
+      },
+      include: {
+        type: true,
+        claimedBy: { select: { id: true, name: true } },
+      },
+    })
+
+    // Log status change
+    await prisma.machineStatusLog.create({
+      data: { machineId: id, status: 'available', source: 'manual' },
+    })
+
+    // Log activity
+    await prisma.activityLog.create({
+      data: {
+        machineId: id,
+        userId: req.user!.id,
+        action: 'machine_released',
+        details: 'Released machine claim',
+      },
+    })
+
+    const io = req.app.get('io')
+    io.emit('machine:released', { machineId: id })
+
+    res.json(updated)
+  } catch (error) {
+    console.error('Release machine error:', error)
+    res.status(500).json({ error: 'Failed to release machine' })
+  }
+})
+
+// Upload attachment to machine
+router.post('/:id/attachments', authenticate, requireOperator, upload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const file = req.file
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' })
+    }
+
+    const attachment = await prisma.machineAttachment.create({
+      data: {
+        machineId: id,
+        userId: req.user!.id,
+        filename: file.filename,
+        originalName: file.originalname,
+        fileType: file.mimetype,
+        description: req.body.description || null,
+      },
+      include: {
+        user: { select: { id: true, name: true } },
+      },
+    })
+
+    res.status(201).json(attachment)
+  } catch (error) {
+    console.error('Upload attachment error:', error)
+    res.status(500).json({ error: 'Failed to upload attachment' })
+  }
+})
+
+// Get attachments for machine
+router.get('/:id/attachments', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const attachments = await prisma.machineAttachment.findMany({
+      where: { machineId: id },
+      include: {
+        user: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json(attachments)
+  } catch (error) {
+    console.error('Get attachments error:', error)
+    res.status(500).json({ error: 'Failed to get attachments' })
+  }
+})
+
+// Delete attachment
+router.delete('/:id/attachments/:attachmentId', authenticate, requireOperator, async (req: AuthRequest, res) => {
+  try {
+    const attachmentId = req.params.attachmentId as string
+
+    const attachment = await prisma.machineAttachment.findUnique({ where: { id: attachmentId } })
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found' })
+    }
+
+    // Only uploader or admin can delete
+    if (attachment.userId !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized to delete this attachment' })
+    }
+
+    await prisma.machineAttachment.delete({ where: { id: attachmentId } })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Delete attachment error:', error)
+    res.status(500).json({ error: 'Failed to delete attachment' })
   }
 })
 
