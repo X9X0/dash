@@ -91,7 +91,7 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
         const { stdout } = await execAsync(`host ${ip}`, { timeout: 3000 })
         const match = stdout.match(/domain name pointer\s+(\S+)/i)
         if (match?.[1]) {
-          return match[1].replace(/\.$/, '').toLowerCase()
+          return match[1].replace(/\.$/, '').replace(/\.local$/, '').toLowerCase()
         }
       } catch {
         // host command failed
@@ -113,7 +113,7 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
         const { stdout } = await execAsync(`avahi-resolve-address ${ip}`, { timeout: 3000 })
         const match = stdout.match(/\s+(\S+)\s*$/)
         if (match?.[1] && match[1] !== ip) {
-          return match[1].replace(/\.$/, '').trim().toLowerCase()
+          return match[1].replace(/\.$/, '').replace(/\.local$/, '').trim().toLowerCase()
         }
       } catch {
         // avahi-resolve not installed or failed
@@ -183,8 +183,21 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
         // nmblookup not installed or failed
       }
 
-      // Strategy 3: ping (uses system resolver which may include mDNS/LLMNR)
-      // Linux ping output: "PING hostname (192.168.1.1) ..."
+      // Strategy 3: ping with .local suffix (mDNS - common on Linux LANs)
+      // Linux ping output: "PING hostname.local (192.168.1.1) ..."
+      if (!hostname.endsWith('.local')) {
+        try {
+          const { stdout } = await execAsync(`ping -c 1 -W 1 ${hostname}.local`, { timeout: 3000 })
+          const match = stdout.match(/PING\s+\S+\s+\((\S+)\)/)
+          if (match?.[1] && net.isIP(match[1])) {
+            return match[1]
+          }
+        } catch {
+          // ping with .local failed
+        }
+      }
+
+      // Strategy 4: ping without .local (system resolver)
       try {
         const { stdout } = await execAsync(`ping -c 1 -W 1 ${hostname}`, { timeout: 3000 })
         const match = stdout.match(/PING\s+\S+\s+\((\S+)\)/)
@@ -225,7 +238,7 @@ async function resolveAddress(address: string, machineNameHint?: string): Promis
           [] as string[]
         )
         if (hostnames.length > 0 && hostnames[0]) {
-          resolvedHostname = hostnames[0]
+          resolvedHostname = hostnames[0].replace(/\.local$/, '').toLowerCase()
         }
       } catch {
         // dns.reverse() failed (common - many networks lack PTR records)
@@ -266,7 +279,23 @@ async function resolveAddress(address: string, machineNameHint?: string): Promis
         // dns.lookup() failed
       }
 
-      // Strategy 2: If dns.lookup() failed, try system-level resolution
+      // Strategy 2: Try with .local suffix for mDNS (Linux needs this explicitly)
+      if (!resolvedIP && !address.endsWith('.local')) {
+        try {
+          const result = await withTimeout(
+            dnsLookup(address + '.local'),
+            DNS_TIMEOUT,
+            null as { address: string } | null
+          )
+          if (result?.address) {
+            resolvedIP = result.address
+          }
+        } catch {
+          // mDNS lookup also failed
+        }
+      }
+
+      // Strategy 3: If dns.lookup() failed, try system-level resolution
       if (!resolvedIP) {
         resolvedIP = await resolveIPViaSystem(address)
       }
