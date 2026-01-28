@@ -106,7 +106,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
   const isWindows = process.platform === 'win32'
   try {
     if (isWindows) {
-      // Try nslookup
+      // Try nslookup first
       try {
         const { stdout } = await execAsync(`nslookup ${hostname}`, { timeout: 3000 })
         // nslookup output: look for the address after the "Name:" line
@@ -123,6 +123,18 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
         }
       } catch {
         // nslookup failed
+      }
+
+      // Try ping -a (uses LLMNR/mDNS which works on LANs where DNS doesn't)
+      // Output: "Pinging hostname.domain [192.168.1.1] with 32 bytes of data:"
+      try {
+        const { stdout } = await execAsync(`ping -a -n 1 -w 1000 ${hostname}`, { timeout: 3000 })
+        const match = stdout.match(/Pinging\s+\S+\s+\[(\S+)\]/)
+        if (match?.[1] && net.isIP(match[1])) {
+          return match[1]
+        }
+      } catch {
+        // ping -a failed
       }
     } else {
       try {
