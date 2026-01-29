@@ -211,6 +211,10 @@ export function MachineDetail() {
       const timeline = await machineService.getTimeline(id!)
       setServiceRecords(timeline.serviceRecords)
       setMaintenanceRequests(timeline.maintenanceRequests)
+      // Update statusLogs from timeline (includes user data)
+      if (timeline.statusLogs) {
+        setMachine((prev) => prev ? { ...prev, statusLogs: timeline.statusLogs } : null)
+      }
     } catch (error) {
       console.error('Failed to fetch timeline:', error)
     }
@@ -271,6 +275,7 @@ export function MachineDetail() {
     try {
       const updated = await machineService.updateStatus(machine.id, newStatus)
       setMachine((prev) => (prev ? { ...prev, status: updated.status } : null))
+      fetchTimeline() // Refresh to show new status log with user
     } catch (error) {
       console.error('Failed to update status:', error)
     } finally {
@@ -284,6 +289,7 @@ export function MachineDetail() {
     try {
       const updated = await machineService.updateCondition(machine.id, newCondition)
       setMachine((prev) => (prev ? { ...prev, condition: updated.condition } : null))
+      fetchTimeline() // Refresh to show new status log with user
     } catch (error) {
       console.error('Failed to update condition:', error)
     } finally {
@@ -352,6 +358,7 @@ export function MachineDetail() {
     try {
       const updated = await machineService.claimMachine(machine.id, claimDuration)
       setMachine((prev) => prev ? { ...prev, ...updated } : null)
+      fetchTimeline() // Refresh to show new status log with user
     } catch (error) {
       console.error('Failed to claim machine:', error)
     } finally {
@@ -365,6 +372,7 @@ export function MachineDetail() {
     try {
       const updated = await machineService.releaseMachine(machine.id)
       setMachine((prev) => prev ? { ...prev, ...updated } : null)
+      fetchTimeline() // Refresh to show new status log with user
     } catch (error) {
       console.error('Failed to release machine:', error)
     } finally {

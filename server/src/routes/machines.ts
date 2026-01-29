@@ -437,6 +437,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         customFields: true,
         claimedBy: { select: { id: true, name: true } },
         statusLogs: {
+          include: { user: { select: { id: true, name: true } } },
           orderBy: { timestamp: 'desc' },
           take: 50,
         },
