@@ -1,10 +1,14 @@
 import multer from 'multer'
 import { randomUUID } from 'crypto'
 import { extname, join } from 'path'
-import { mkdirSync } from 'fs'
+import { mkdirSync, existsSync } from 'fs'
 
-// Use process.cwd() for reliable path resolution across dev/prod
-const uploadsDir = join(process.cwd(), 'uploads')
+// Handle both running from server/ or project root
+let uploadsDir = join(process.cwd(), 'uploads')
+// If running from project root (e.g., dash/), use server/uploads
+if (!existsSync(uploadsDir)) {
+  uploadsDir = join(process.cwd(), 'server', 'uploads')
+}
 console.log('Upload directory:', uploadsDir)
 
 // Ensure uploads directory exists

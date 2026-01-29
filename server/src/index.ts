@@ -38,8 +38,13 @@ const io = new Server(httpServer, {
 app.use(cors())
 app.use(express.json())
 
-// Serve uploaded files - use process.cwd() for reliable path resolution
-const uploadsPath = join(process.cwd(), 'uploads')
+// Serve uploaded files - handle both running from server/ or project root
+import { existsSync } from 'fs'
+let uploadsPath = join(process.cwd(), 'uploads')
+// If running from project root (e.g., dash/), look in server/uploads
+if (!existsSync(uploadsPath)) {
+  uploadsPath = join(process.cwd(), 'server', 'uploads')
+}
 console.log('Serving uploads from:', uploadsPath)
 app.use('/uploads', express.static(uploadsPath))
 
