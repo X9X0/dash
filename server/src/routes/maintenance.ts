@@ -44,7 +44,13 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       ],
     })
 
-    res.json(requests)
+    // Parse photos JSON for each request
+    const parsedRequests = requests.map((r) => ({
+      ...r,
+      photos: r.photos ? JSON.parse(r.photos) : [],
+    }))
+
+    res.json(parsedRequests)
   } catch (error) {
     console.error('Get maintenance requests error:', error)
     res.status(500).json({ error: 'Failed to get maintenance requests' })

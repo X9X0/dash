@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2 } from 'lucide-react'
+import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer } from 'lucide-react'
 import { Card, CardContent, Badge, Button } from '@/components/common'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
+import { formatDistanceToNow, parseISO } from 'date-fns'
 import type { Machine, MachineStatus, MachineCondition } from '@/types'
 
 interface PingStatus {
@@ -110,7 +111,7 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
       <Card className="group hover:shadow-md transition-shadow cursor-pointer overflow-hidden">
         <div className={`h-3 ${getTopBarColor()}`} />
         <CardContent className="p-4">
-          {/* Icon + Name/Model (left) | statusNote (right) */}
+          {/* Icon + Name/Model */}
           <div className="flex items-start gap-4">
             <div className="p-3 rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
               {getMachineIcon(localMachine.type)}
@@ -121,12 +122,14 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
                 {localMachine.model}
               </p>
             </div>
-            {localMachine.statusNote && (
-              <p className="text-xs italic text-muted-foreground text-right max-w-[40%] line-clamp-2 shrink-0">
-                {localMachine.statusNote}
-              </p>
-            )}
           </div>
+
+          {/* Status Note - more visible */}
+          {localMachine.statusNote && (
+            <p className="mt-3 text-sm italic text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-2 py-1 line-clamp-2">
+              {localMachine.statusNote}
+            </p>
+          )}
 
           {/* Location, hours, network info */}
           <div className="mt-4 space-y-2">
@@ -154,11 +157,19 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
             )}
           </div>
 
-          {/* Claimer display */}
+          {/* Claimer display with time remaining */}
           {localMachine.claimedBy && (
-            <p className="mt-2 text-xs font-medium text-blue-600 dark:text-blue-400">
-              In use by {localMachine.claimedBy.name}
-            </p>
+            <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+              <Timer className="h-3 w-3" />
+              <span>
+                {localMachine.claimedBy.name}
+                {localMachine.claimExpiresAt && (
+                  <span className="text-muted-foreground ml-1">
+                    ({formatDistanceToNow(parseISO(localMachine.claimExpiresAt), { addSuffix: false })} left)
+                  </span>
+                )}
+              </span>
+            </div>
           )}
 
           {/* Claim/Release buttons */}

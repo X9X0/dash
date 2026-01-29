@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn } from 'lucide-react'
-import { format } from 'date-fns'
+import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer } from 'lucide-react'
+import { format, formatDistanceToNow, parseISO } from 'date-fns'
 import api from '@/services/api'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
 import { useAuthStore } from '@/store/authStore'
@@ -271,17 +271,25 @@ export function Kiosk() {
                     {getStatusText(machine)}
                     {conditionText && <span className="ml-1">({conditionText})</span>}
                   </p>
-                  {/* Status note - directly below status text */}
+                  {/* Status note - more visible */}
                   {machine.statusNote && (
-                    <p className="text-[10px] italic text-muted-foreground mt-1 line-clamp-2">
+                    <p className="text-xs italic text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5 mt-2 line-clamp-2">
                       {machine.statusNote}
                     </p>
                   )}
-                  {/* Claimer display */}
+                  {/* Claimer display with time remaining */}
                   {machine.claimedBy && (
-                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mt-1">
-                      In use by {machine.claimedBy.name}
-                    </p>
+                    <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 mt-1">
+                      <Timer className="h-3 w-3" />
+                      <span>
+                        {machine.claimedBy.name}
+                        {machine.claimExpiresAt && (
+                          <span className="text-muted-foreground ml-1">
+                            ({formatDistanceToNow(parseISO(machine.claimExpiresAt), { addSuffix: false })} left)
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   )}
                   {/* Network Info - IP/Hostname */}
                   {networkInfo && (networkInfo.ip || networkInfo.hostname) && (

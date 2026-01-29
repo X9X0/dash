@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2 } from 'lucide-react'
+import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
@@ -9,7 +9,7 @@ import { reservationService } from '@/services/reservations'
 import { maintenanceService } from '@/services/maintenance'
 import api from '@/services/api'
 import type { Reservation, MaintenanceRequest } from '@/types'
-import { format, isToday } from 'date-fns'
+import { format, isToday, formatDistanceToNow, parseISO } from 'date-fns'
 
 interface PingStatus {
   machineId: string
@@ -274,19 +274,28 @@ export function Dashboard() {
                         {getStatusText()}
                         {conditionText && <span className="ml-1">({conditionText})</span>}
                       </span>
-                      {machine.statusNote && (
-                        <p className="text-[10px] italic text-muted-foreground truncate max-w-[80px]" title={machine.statusNote}>
-                          {machine.statusNote}
-                        </p>
-                      )}
                       <p className="text-[10px] text-muted-foreground">{machine.type?.name}</p>
                     </div>
                     </div>
-                    {/* Claimer display */}
-                    {machine.claimedBy && (
-                      <p className="px-3 pb-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                        In use by {machine.claimedBy.name}
+                    {/* Status Note - more visible */}
+                    {machine.statusNote && (
+                      <p className="mx-3 mb-1 text-xs italic text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5 truncate" title={machine.statusNote}>
+                        {machine.statusNote}
                       </p>
+                    )}
+                    {/* Claimer display with time remaining */}
+                    {machine.claimedBy && (
+                      <div className="px-3 pb-1 flex items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                        <Timer className="h-2.5 w-2.5" />
+                        <span>
+                          {machine.claimedBy.name}
+                          {machine.claimExpiresAt && (
+                            <span className="text-muted-foreground ml-1">
+                              ({formatDistanceToNow(parseISO(machine.claimExpiresAt), { addSuffix: false })} left)
+                            </span>
+                          )}
+                        </span>
+                      </div>
                     )}
                     {/* Claim/Release buttons */}
                     {(canClaimThis || canReleaseThis) && (
