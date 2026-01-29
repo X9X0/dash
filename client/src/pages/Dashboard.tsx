@@ -223,9 +223,9 @@ export function Dashboard() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-4">
         {/* Machine Status Grid */}
-        <Card>
+        <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Machine Status</CardTitle>
             <Link to="/machines" className="text-sm text-primary hover:underline">
@@ -233,8 +233,8 @@ export function Dashboard() {
             </Link>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {sortedMachines.slice(0, 6).map((machine) => {
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {sortedMachines.slice(0, 9).map((machine) => {
                 const status = pingStatus[machine.id]
                 const isReachable = status?.reachable
                 const hasNetworkConfig = status !== undefined
@@ -430,7 +430,7 @@ export function Dashboard() {
         </Card>
 
         {/* Alerts & Maintenance */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-4">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Pending Maintenance</CardTitle>
             <Link to="/maintenance" className="text-sm text-primary hover:underline">
