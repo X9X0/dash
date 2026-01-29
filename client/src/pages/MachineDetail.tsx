@@ -95,11 +95,10 @@ const conditionBadgeVariants: Record<string, 'success' | 'caution' | 'destructiv
   broken: 'destructive',
 }
 
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'
-
 function getPhotoUrl(path: string): string {
   if (path.startsWith('http')) return path
-  return `${API_BASE}${path}`
+  // Use relative URL - works regardless of domain/port
+  return path
 }
 
 function isImageFile(fileType: string): boolean {

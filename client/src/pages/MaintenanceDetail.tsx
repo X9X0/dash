@@ -14,11 +14,10 @@ import { maintenanceService } from '@/services/maintenance'
 import { useAuthStore } from '@/store/authStore'
 import type { MaintenanceRequest, MaintenancePriority, MaintenanceStatus } from '@/types'
 
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'
-
 function getPhotoUrl(path: string): string {
   if (path.startsWith('http')) return path
-  return `${API_BASE}${path}`
+  // Use relative URL - works regardless of domain/port
+  return path
 }
 
 const priorityBadgeVariants: Record<MaintenancePriority, 'default' | 'secondary' | 'warning' | 'destructive'> = {
