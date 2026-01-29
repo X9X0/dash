@@ -976,7 +976,7 @@ export function MachineDetail() {
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {log.user ? `by ${log.user.name}` : `Source: ${log.source}`}
+                            {log.source}{log.user ? ` · by ${log.user.name}` : ''}
                           </p>
                         </div>
                       </div>
