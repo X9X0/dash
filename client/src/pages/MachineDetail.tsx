@@ -50,7 +50,7 @@ import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDi
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
 import { MaintenanceRequestDialog } from '@/components/machines/MaintenanceRequestDialog'
 import { EditMaintenanceRequestDialog } from '@/components/machines/EditMaintenanceRequestDialog'
-import type { Machine, MachineStatus, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment } from '@/types'
+import type { Machine, MachineStatus, MachineCondition, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment } from '@/types'
 
 interface MachineDetailData extends Machine {
   statusLogs?: MachineStatusLog[]
@@ -74,17 +74,25 @@ const statusColors: Record<MachineStatus, string> = {
   in_use: 'bg-blue-500',
   maintenance: 'bg-yellow-500',
   offline: 'bg-gray-500',
-  error: 'bg-red-500',
-  damaged_but_usable: 'hazard-stripes',
 }
 
-const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive' | 'caution'> = {
+const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary'> = {
   available: 'success',
   in_use: 'default',
   maintenance: 'warning',
   offline: 'secondary',
-  error: 'destructive',
-  damaged_but_usable: 'caution',
+}
+
+const conditionColors: Record<string, string> = {
+  functional: 'bg-green-500',
+  degraded: 'hazard-stripes',
+  broken: 'bg-red-500',
+}
+
+const conditionBadgeVariants: Record<string, 'success' | 'caution' | 'destructive'> = {
+  functional: 'success',
+  degraded: 'caution',
+  broken: 'destructive',
 }
 
 const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'
@@ -119,6 +127,7 @@ export function MachineDetail() {
 
   // Status change state
   const [changingStatus, setChangingStatus] = useState(false)
+  const [changingCondition, setChangingCondition] = useState(false)
 
   // Hour logging state
   const [showAddHours, setShowAddHours] = useState(false)
@@ -239,6 +248,19 @@ export function MachineDetail() {
       console.error('Failed to update status:', error)
     } finally {
       setChangingStatus(false)
+    }
+  }
+
+  const handleConditionChange = async (newCondition: MachineCondition) => {
+    if (!machine) return
+    setChangingCondition(true)
+    try {
+      const updated = await machineService.updateCondition(machine.id, newCondition)
+      setMachine((prev) => (prev ? { ...prev, condition: updated.condition } : null))
+    } catch (error) {
+      console.error('Failed to update condition:', error)
+    } finally {
+      setChangingCondition(false)
     }
   }
 
@@ -391,7 +413,7 @@ export function MachineDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">{machine.name}</h1>
-              <div className={`h-3 w-6 rounded-full ${statusColors[machine.status]}`} />
+              <div className={`h-3 w-6 rounded-full ${machine.condition === 'broken' ? conditionColors.broken : machine.condition === 'degraded' ? conditionColors.degraded : statusColors[machine.status]}`} />
               {pingResult && (
                 <div className="flex items-center gap-1">
                   {pingResult.reachable ? (
@@ -579,12 +601,36 @@ export function MachineDetail() {
                       <SelectItem value="in_use">In Use</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="offline">Offline</SelectItem>
-                      <SelectItem value="error">Error</SelectItem>
-                      <SelectItem value="damaged_but_usable">Damaged (Usable)</SelectItem>
                     </SelectContent>
                   </Select>
                   <Badge variant={statusBadgeVariants[machine.status]}>
-                    {machine.status === 'damaged_but_usable' ? 'damaged (usable)' : machine.status.replace('_', ' ')}
+                    {machine.status.replace('_', ' ')}
+                  </Badge>
+                </div>
+              </div>
+            )}
+
+            {/* Condition Control */}
+            {isOperator && (
+              <div className="pt-4 border-t">
+                <p className="text-sm text-muted-foreground mb-2">Change Condition</p>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={machine.condition}
+                    onValueChange={(value) => handleConditionChange(value as MachineCondition)}
+                    disabled={changingCondition}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="functional">Functional</SelectItem>
+                      <SelectItem value="degraded">Degraded</SelectItem>
+                      <SelectItem value="broken">Broken</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Badge variant={conditionBadgeVariants[machine.condition]}>
+                    {machine.condition}
                   </Badge>
                 </div>
               </div>
@@ -822,7 +868,11 @@ export function MachineDetail() {
                     if (entry.type === 'maintenance') {
                       const request = entry.data as MaintenanceRequest
                       return (
-                        <div key={`maintenance-${request.id}`} className="flex items-start gap-3 p-3 rounded-lg border group">
+                        <div
+                          key={`maintenance-${request.id}`}
+                          className="flex items-start gap-3 p-3 rounded-lg border group hover:bg-accent/50 cursor-pointer transition-colors"
+                          onClick={() => navigate(`/maintenance/${request.id}`)}
+                        >
                           <div className="mt-0.5">
                             <AlertTriangle className="h-4 w-4 text-orange-500" />
                           </div>
@@ -853,7 +903,7 @@ export function MachineDetail() {
                             {request.photos && request.photos.length > 0 && (
                               <div className="flex flex-wrap gap-2 mt-2">
                                 {request.photos.map((photo, i) => (
-                                  <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                                  <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                                     <img
                                       src={getPhotoUrl(photo)}
                                       alt={`Photo ${i + 1}`}
@@ -867,7 +917,7 @@ export function MachineDetail() {
                           {/* Edit button for operators */}
                           {isOperator && (
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingMaintenanceRequest(request)}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setEditingMaintenanceRequest(request) }}>
                                 <Edit className="h-3 w-3" />
                               </Button>
                             </div>
@@ -884,11 +934,16 @@ export function MachineDetail() {
                           <ArrowRightLeft className="h-4 w-4 text-gray-500" />
                         </div>
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="secondary" className="text-xs">Status Change</Badge>
                             <Badge variant={statusBadgeVariants[log.status as MachineStatus] || 'secondary'} className="text-xs">
-                              {log.status === 'damaged_but_usable' ? 'damaged (usable)' : log.status.replace('_', ' ')}
+                              {log.status.replace('_', ' ')}
                             </Badge>
+                            {log.condition && (
+                              <Badge variant={conditionBadgeVariants[log.condition] || 'secondary'} className="text-xs">
+                                {log.condition}
+                              </Badge>
+                            )}
                             <span className="text-xs text-muted-foreground">
                               {format(parseISO(log.timestamp), 'MMM d, h:mm a')}
                             </span>

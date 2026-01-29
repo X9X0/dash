@@ -74,10 +74,11 @@ export function Kiosk() {
   const getIndicatorColor = (machine: Machine) => {
     const status = pingStatus[machine.id]
     const isReachable = status?.reachable
+    // Condition takes precedence for color if broken or degraded
+    if (machine.condition === 'broken') return 'bg-red-500'
+    if (machine.condition === 'degraded') return 'hazard-stripes'
     if (machine.status === 'available' && isReachable === true) return 'bg-green-500'
-    if (machine.status === 'error') return 'bg-red-500'
     if (machine.status === 'offline') return 'bg-gray-500'
-    if (machine.status === 'damaged_but_usable') return 'hazard-stripes'
     if (machine.status === 'available' && isReachable === false) return 'bg-yellow-500'
     if (machine.status === 'in_use') return 'bg-blue-500'
     if (machine.status === 'maintenance') return 'bg-yellow-500'
@@ -95,21 +96,25 @@ export function Kiosk() {
     if (machine.status === 'in_use') return 'In Use'
     if (machine.status === 'maintenance') return 'Maintenance'
     if (machine.status === 'offline') return 'Offline'
-    if (machine.status === 'error') return 'Error'
-    if (machine.status === 'damaged_but_usable') return 'Damaged (Usable)'
     return machine.status
   }
 
   const getStatusTextColor = (machine: Machine) => {
     const status = pingStatus[machine.id]
     const isReachable = status?.reachable
+    if (machine.condition === 'broken') return 'text-red-500'
+    if (machine.condition === 'degraded') return 'text-yellow-600'
     if (machine.status === 'available' && isReachable === true) return 'text-green-500'
-    if (machine.status === 'error') return 'text-red-500'
-    if (machine.status === 'damaged_but_usable') return 'text-yellow-600'
     if (machine.status === 'available' && isReachable === false) return 'text-yellow-500'
     if (machine.status === 'in_use') return 'text-blue-500'
     if (machine.status === 'maintenance') return 'text-yellow-500'
     return 'text-gray-500'
+  }
+
+  const getConditionText = (machine: Machine) => {
+    if (machine.condition === 'broken') return 'Broken'
+    if (machine.condition === 'degraded') return 'Degraded'
+    return null
   }
 
   const getNetworkInfo = (machine: Machine) => {
@@ -218,16 +223,16 @@ export function Kiosk() {
           <span>Maintenance / Unreachable</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-4 w-4 rounded-full bg-red-500" />
-          <span>Error</span>
-        </div>
-        <div className="flex items-center gap-2">
           <div className="h-4 w-4 rounded-full bg-gray-500" />
           <span>Offline</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="h-4 w-4 rounded-full hazard-stripes" />
-          <span>Damaged (Usable)</span>
+          <span>Degraded</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-4 w-4 rounded-full bg-red-500" />
+          <span>Broken</span>
         </div>
       </div>
 
@@ -242,6 +247,7 @@ export function Kiosk() {
               const hasNetworkConfig = status !== undefined
               const networkInfo = getNetworkInfo(machine)
 
+              const conditionText = getConditionText(machine)
               return (
                 <div
                   key={machine.id}
@@ -249,16 +255,11 @@ export function Kiosk() {
                 >
                   <div className={`h-3 ${getIndicatorColor(machine)}`} />
                   <div className="p-4 flex-1">
-                  {/* Icon + statusNote row */}
+                  {/* Icon row */}
                   <div className="flex items-start justify-between mb-3">
                     <div className={`p-2 rounded-lg bg-muted ${getStatusTextColor(machine)}`}>
                       {getMachineIcon(machine.type?.category)}
                     </div>
-                    {machine.statusNote && (
-                      <p className="text-[10px] italic text-muted-foreground text-right max-w-[55%] line-clamp-2">
-                        {machine.statusNote}
-                      </p>
-                    )}
                   </div>
                   <h3 className="font-semibold truncate" title={machine.name}>
                     {machine.name}
@@ -268,7 +269,14 @@ export function Kiosk() {
                   </p>
                   <p className={`text-sm font-medium mt-2 ${getStatusTextColor(machine)}`}>
                     {getStatusText(machine)}
+                    {conditionText && <span className="ml-1">({conditionText})</span>}
                   </p>
+                  {/* Status note - directly below status text */}
+                  {machine.statusNote && (
+                    <p className="text-[10px] italic text-muted-foreground mt-1 line-clamp-2">
+                      {machine.statusNote}
+                    </p>
+                  )}
                   {/* Claimer display */}
                   {machine.claimedBy && (
                     <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mt-1">

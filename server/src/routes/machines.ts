@@ -358,7 +358,9 @@ const createMachineSchema = z.object({
   typeId: z.string().min(1),
   model: z.string().min(1),
   location: z.string().min(1),
-  status: z.enum(['available', 'in_use', 'maintenance', 'offline', 'error', 'damaged_but_usable']).optional(),
+  status: z.enum(['available', 'in_use', 'maintenance', 'offline']).optional(),
+  condition: z.enum(['functional', 'degraded', 'broken']).optional(),
+  conditionNote: z.string().nullable().optional(),
   hourMeter: z.number().min(0).optional(),
   buildDate: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
@@ -370,8 +372,14 @@ const createMachineSchema = z.object({
 const updateMachineSchema = createMachineSchema.partial()
 
 const updateStatusSchema = z.object({
-  status: z.enum(['available', 'in_use', 'maintenance', 'offline', 'error', 'damaged_but_usable']),
+  status: z.enum(['available', 'in_use', 'maintenance', 'offline']),
+  condition: z.enum(['functional', 'degraded', 'broken']).optional(),
   source: z.enum(['manual', 'api']).optional(),
+})
+
+const updateConditionSchema = z.object({
+  condition: z.enum(['functional', 'degraded', 'broken']),
+  conditionNote: z.string().nullable().optional(),
 })
 
 const addHoursSchema = z.object({
@@ -458,6 +466,8 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
         model: data.model,
         location: data.location,
         status: data.status || 'available',
+        condition: data.condition || 'functional',
+        conditionNote: data.conditionNote || null,
         hourMeter: data.hourMeter || 0,
         buildDate: data.buildDate ? new Date(data.buildDate) : null,
         icon: data.icon || null,
@@ -541,11 +551,14 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
 router.patch('/:id/status', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
-    const { status, source } = updateStatusSchema.parse(req.body)
+    const { status, condition, source } = updateStatusSchema.parse(req.body)
+
+    const updateData: Record<string, unknown> = { status }
+    if (condition) updateData.condition = condition
 
     const machine = await prisma.machine.update({
       where: { id },
-      data: { status },
+      data: updateData,
       include: { type: true },
     })
 
@@ -554,6 +567,7 @@ router.patch('/:id/status', authenticate, requireOperator, async (req: AuthReque
       data: {
         machineId: id,
         status,
+        condition: condition || null,
         source: source || 'manual',
       },
     })
@@ -648,6 +662,52 @@ router.patch('/:id/status-note', authenticate, requireOperator, async (req: Auth
     }
     console.error('Update status note error:', error)
     res.status(500).json({ error: 'Failed to update status note' })
+  }
+})
+
+// Update machine condition (operator+)
+router.patch('/:id/condition', authenticate, requireOperator, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const { condition, conditionNote } = updateConditionSchema.parse(req.body)
+
+    const machine = await prisma.machine.update({
+      where: { id },
+      data: { condition, conditionNote: conditionNote ?? undefined },
+      include: { type: true, claimedBy: { select: { id: true, name: true } } },
+    })
+
+    // Log condition change
+    await prisma.machineStatusLog.create({
+      data: {
+        machineId: id,
+        status: machine.status,
+        condition,
+        source: 'manual',
+      },
+    })
+
+    // Log activity
+    await prisma.activityLog.create({
+      data: {
+        machineId: id,
+        userId: req.user!.id,
+        action: 'condition_changed',
+        details: `Condition changed to: ${condition}`,
+      },
+    })
+
+    // Emit socket event
+    const io = req.app.get('io')
+    io.emit('machine:update', machine)
+
+    res.json(machine)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    console.error('Update condition error:', error)
+    res.status(500).json({ error: 'Failed to update condition' })
   }
 })
 

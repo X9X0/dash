@@ -19,6 +19,7 @@ model User {
   jobs                Job[]
   activityLogs        ActivityLog[]
   maintenanceRequests MaintenanceRequest[]
+  maintenanceUpdates  MaintenanceUpdate[]
   serviceRecords      ServiceRecord[]
   hourEntries         HourEntry[]
   notifications       Notification[]
@@ -46,7 +47,9 @@ model Machine {
   typeId           String    @map("type_id")
   model            String
   location         String
-  status           String    @default("available") // available, in_use, maintenance, offline, error, damaged_but_usable
+  status           String    @default("available") // available, in_use, maintenance, offline
+  condition        String    @default("functional") // functional, degraded, broken
+  conditionNote    String?   @map("condition_note")
   hourMeter        Float     @default(0) @map("hour_meter")
   buildDate        DateTime? @map("build_date")
   icon             String?
@@ -101,6 +104,7 @@ model MachineStatusLog {
   id        String   @id @default(cuid())
   machineId String   @map("machine_id")
   status    String
+  condition String?
   source    String   @default("manual") // manual, api
   timestamp DateTime @default(now())
 
@@ -167,10 +171,25 @@ model MaintenanceRequest {
   createdAt   DateTime  @default(now()) @map("created_at")
   resolvedAt  DateTime? @map("resolved_at")
 
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  machine Machine              @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updates MaintenanceUpdate[]
 
   @@map("maintenance_requests")
+}
+
+model MaintenanceUpdate {
+  id                   String   @id @default(cuid())
+  maintenanceRequestId String   @map("maintenance_request_id")
+  userId               String   @map("user_id")
+  content              String
+  photos               String?
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  maintenanceRequest MaintenanceRequest @relation(fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("maintenance_updates")
 }
 
 model ServiceRecord {

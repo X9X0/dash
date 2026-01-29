@@ -20,7 +20,7 @@ import { machineService } from '@/services/machines'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
-import type { Machine, MachineType, MachineStatus, MachineIP } from '@/types'
+import type { Machine, MachineType, MachineStatus, MachineCondition, MachineIP } from '@/types'
 
 const categoryOrder: Record<string, number> = {
   'Biped Humanoid': 1,
@@ -49,6 +49,8 @@ export function MachineEdit() {
     model: '',
     location: '',
     status: 'available' as MachineStatus,
+    condition: 'functional' as MachineCondition,
+    conditionNote: '',
     hourMeter: 0,
     buildDate: '',
     notes: '',
@@ -90,6 +92,8 @@ export function MachineEdit() {
           model: machineData.model,
           location: machineData.location,
           status: machineData.status,
+          condition: machineData.condition || 'functional',
+          conditionNote: machineData.conditionNote || '',
           hourMeter: machineData.hourMeter,
           buildDate: machineData.buildDate ? machineData.buildDate.split('T')[0] : '',
           notes: machineData.notes || '',
@@ -124,6 +128,8 @@ export function MachineEdit() {
         model: formData.model,
         location: formData.location,
         status: formData.status,
+        condition: formData.condition,
+        conditionNote: formData.conditionNote || null,
         hourMeter: Number(formData.hourMeter),
         buildDate: formData.buildDate || null,
         notes: formData.notes || null,
@@ -272,8 +278,23 @@ export function MachineEdit() {
                     <SelectItem value="in_use">In Use</SelectItem>
                     <SelectItem value="maintenance">Maintenance</SelectItem>
                     <SelectItem value="offline">Offline</SelectItem>
-                    <SelectItem value="error">Error</SelectItem>
-                    <SelectItem value="damaged_but_usable">Damaged (Usable)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="condition">Condition</Label>
+                <Select
+                  value={formData.condition}
+                  onValueChange={(value) => setFormData({ ...formData, condition: value as MachineCondition })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="functional">Functional</SelectItem>
+                    <SelectItem value="degraded">Degraded</SelectItem>
+                    <SelectItem value="broken">Broken</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

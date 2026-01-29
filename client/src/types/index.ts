@@ -8,7 +8,8 @@ export interface User {
   createdAt: string
 }
 
-export type MachineStatus = 'available' | 'in_use' | 'maintenance' | 'offline' | 'error' | 'damaged_but_usable'
+export type MachineStatus = 'available' | 'in_use' | 'maintenance' | 'offline'
+export type MachineCondition = 'functional' | 'degraded' | 'broken'
 export type MachineCategory = 'robot' | 'printer'
 
 export interface MachineType {
@@ -48,6 +49,8 @@ export interface Machine {
   model: string
   location: string
   status: MachineStatus
+  condition: MachineCondition
+  conditionNote: string | null
   hourMeter: number
   buildDate: string | null
   icon: string | null
@@ -109,6 +112,16 @@ export type MaintenancePriority = 'low' | 'medium' | 'high' | 'critical'
 export type MaintenanceType = 'damage' | 'repair' | 'upgrade' | 'checkout'
 export type MaintenanceStatus = 'submitted' | 'in_progress' | 'resolved'
 
+export interface MaintenanceUpdate {
+  id: string
+  maintenanceRequestId: string
+  userId: string
+  user?: { id: string; name: string }
+  content: string
+  photos: string[]
+  createdAt: string
+}
+
 export interface MaintenanceRequest {
   id: string
   machineId: string
@@ -120,6 +133,7 @@ export interface MaintenanceRequest {
   description: string
   status: MaintenanceStatus
   photos?: string[]
+  updates?: MaintenanceUpdate[]
   createdAt: string
   resolvedAt: string | null
 }
@@ -157,6 +171,7 @@ export interface MachineStatusLog {
   id: string
   machineId: string
   status: string
+  condition?: string | null
   source: string
   timestamp: string
 }

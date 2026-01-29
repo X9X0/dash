@@ -60,6 +60,12 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       include: {
         machine: true,
         user: { select: { id: true, name: true, email: true } },
+        updates: {
+          include: {
+            user: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     })
 
@@ -67,7 +73,17 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Request not found' })
     }
 
-    res.json(request)
+    // Parse photos JSON
+    const parsedRequest = {
+      ...request,
+      photos: request.photos ? JSON.parse(request.photos) : [],
+      updates: request.updates.map((u) => ({
+        ...u,
+        photos: u.photos ? JSON.parse(u.photos) : [],
+      })),
+    }
+
+    res.json(parsedRequest)
   } catch (error) {
     console.error('Get maintenance request error:', error)
     res.status(500).json({ error: 'Failed to get maintenance request' })
@@ -196,6 +212,66 @@ router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) 
   } catch (error) {
     console.error('Delete maintenance request error:', error)
     res.status(500).json({ error: 'Failed to delete maintenance request' })
+  }
+})
+
+// Get updates for a maintenance request
+router.get('/:id/updates', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const updates = await prisma.maintenanceUpdate.findMany({
+      where: { maintenanceRequestId: id },
+      include: {
+        user: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    // Parse photos JSON
+    const parsedUpdates = updates.map((u) => ({
+      ...u,
+      photos: u.photos ? JSON.parse(u.photos) : [],
+    }))
+
+    res.json(parsedUpdates)
+  } catch (error) {
+    console.error('Get maintenance updates error:', error)
+    res.status(500).json({ error: 'Failed to get maintenance updates' })
+  }
+})
+
+// Add update to a maintenance request (operator+)
+router.post('/:id/updates', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const { content } = z.object({ content: z.string().min(1) }).parse(req.body)
+
+    // Handle file uploads
+    const files = req.files as Express.Multer.File[] | undefined
+    const photoPaths = files?.map((f) => `/uploads/${f.filename}`) || []
+
+    const update = await prisma.maintenanceUpdate.create({
+      data: {
+        maintenanceRequestId: id,
+        userId: req.user!.id,
+        content,
+        photos: photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
+      },
+      include: {
+        user: { select: { id: true, name: true } },
+      },
+    })
+
+    res.status(201).json({
+      ...update,
+      photos: update.photos ? JSON.parse(update.photos) : [],
+    })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    console.error('Add maintenance update error:', error)
+    res.status(500).json({ error: 'Failed to add maintenance update' })
   }
 })
 

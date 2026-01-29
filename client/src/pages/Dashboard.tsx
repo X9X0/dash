@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/common'
+import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2 } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
+import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
 import { reservationService } from '@/services/reservations'
 import { maintenanceService } from '@/services/maintenance'
@@ -19,9 +20,43 @@ interface PingStatus {
 
 export function Dashboard() {
   const { machines, setMachines, setLoading } = useMachineStore()
+  const { user } = useAuthStore()
   const [todayReservations, setTodayReservations] = useState<Reservation[]>([])
   const [pendingMaintenance, setPendingMaintenance] = useState<MaintenanceRequest[]>([])
   const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
+  const [claimingMachineId, setClaimingMachineId] = useState<string | null>(null)
+  const [releasingMachineId, setReleasingMachineId] = useState<string | null>(null)
+
+  const isOperator = user?.role === 'admin' || user?.role === 'operator'
+  const isAdmin = user?.role === 'admin'
+
+  const handleClaim = async (e: React.MouseEvent, machineId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setClaimingMachineId(machineId)
+    try {
+      const updated = await machineService.claimMachine(machineId, 60)
+      setMachines(machines.map((m) => (m.id === machineId ? updated : m)))
+    } catch (error) {
+      console.error('Failed to claim machine:', error)
+    } finally {
+      setClaimingMachineId(null)
+    }
+  }
+
+  const handleRelease = async (e: React.MouseEvent, machineId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setReleasingMachineId(machineId)
+    try {
+      const updated = await machineService.releaseMachine(machineId)
+      setMachines(machines.map((m) => (m.id === machineId ? updated : m)))
+    } catch (error) {
+      console.error('Failed to release machine:', error)
+    } finally {
+      setReleasingMachineId(null)
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -173,10 +208,10 @@ export function Dashboard() {
                 const hasNetworkConfig = status !== undefined
 
                 const getIndicatorColor = () => {
+                  if (machine.condition === 'broken') return 'bg-red-500'
+                  if (machine.condition === 'degraded') return 'hazard-stripes'
                   if (machine.status === 'available' && isReachable === true) return 'bg-green-500'
-                  if (machine.status === 'error') return 'bg-red-500'
                   if (machine.status === 'offline') return 'bg-gray-500'
-                  if (machine.status === 'damaged_but_usable') return 'hazard-stripes'
                   if (machine.status === 'available' && isReachable === false) return 'bg-yellow-500'
                   if (machine.status === 'in_use') return 'bg-blue-500'
                   if (machine.status === 'maintenance') return 'bg-yellow-500'
@@ -187,12 +222,20 @@ export function Dashboard() {
                   if (machine.status === 'available' && isReachable === true) return 'Ready'
                   if (machine.status === 'available' && isReachable === false) return 'Unreachable'
                   if (machine.status === 'available' && !hasNetworkConfig) return 'Available'
-                  if (machine.status === 'damaged_but_usable') return 'Damaged (Usable)'
                   return machine.status.replace('_', ' ')
+                }
+
+                const getConditionText = () => {
+                  if (machine.condition === 'broken') return 'Broken'
+                  if (machine.condition === 'degraded') return 'Degraded'
+                  return null
                 }
 
                 const resolvedHostname = status?.resolvedHostname
                 const resolvedIP = status?.resolvedIP
+                const conditionText = getConditionText()
+                const canClaimThis = isOperator && !machine.claimedById && machine.status === 'available'
+                const canReleaseThis = isOperator && machine.claimedById && (machine.claimedById === user?.id || isAdmin)
 
                 return (
                   <Link
@@ -222,13 +265,14 @@ export function Dashboard() {
                     </div>
                     <div className="text-right shrink-0">
                       <span className={`text-xs font-medium capitalize ${
+                        machine.condition === 'broken' ? 'text-red-500' :
+                        machine.condition === 'degraded' ? 'text-yellow-600' :
                         machine.status === 'available' && isReachable === true ? 'text-green-600' :
-                        machine.status === 'error' ? 'text-red-500' :
-                        machine.status === 'damaged_but_usable' ? 'text-yellow-600' :
                         machine.status === 'available' && isReachable === false ? 'text-yellow-600' :
                         'text-muted-foreground'
                       }`}>
                         {getStatusText()}
+                        {conditionText && <span className="ml-1">({conditionText})</span>}
                       </span>
                       {machine.statusNote && (
                         <p className="text-[10px] italic text-muted-foreground truncate max-w-[80px]" title={machine.statusNote}>
@@ -243,6 +287,35 @@ export function Dashboard() {
                       <p className="px-3 pb-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
                         In use by {machine.claimedBy.name}
                       </p>
+                    )}
+                    {/* Claim/Release buttons */}
+                    {(canClaimThis || canReleaseThis) && (
+                      <div className="px-3 pb-2 flex gap-1">
+                        {canClaimThis && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-6 text-[10px]"
+                            onClick={(e) => handleClaim(e, machine.id)}
+                            disabled={claimingMachineId === machine.id}
+                          >
+                            {claimingMachineId === machine.id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Lock className="h-2.5 w-2.5" />}
+                            Claim
+                          </Button>
+                        )}
+                        {canReleaseThis && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 h-6 text-[10px]"
+                            onClick={(e) => handleRelease(e, machine.id)}
+                            disabled={releasingMachineId === machine.id}
+                          >
+                            {releasingMachineId === machine.id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Unlock className="h-2.5 w-2.5" />}
+                            Release
+                          </Button>
+                        )}
+                      </div>
                     )}
                     {/* Wifi indicator at bottom */}
                     {hasNetworkConfig && (
@@ -326,9 +399,10 @@ export function Dashboard() {
           <CardContent>
             <div className="space-y-3">
               {pendingMaintenance.slice(0, 4).map((request) => (
-                <div
+                <Link
                   key={request.id}
-                  className="flex items-center gap-3 rounded-lg border p-3"
+                  to={`/maintenance/${request.id}`}
+                  className="flex items-center gap-3 rounded-lg border p-3 hover:bg-accent transition-colors"
                 >
                   <AlertTriangle
                     className={`h-4 w-4 ${
@@ -358,7 +432,7 @@ export function Dashboard() {
                   >
                     {request.priority}
                   </Badge>
-                </div>
+                </Link>
               ))}
             </div>
             {pendingMaintenance.length === 0 && (

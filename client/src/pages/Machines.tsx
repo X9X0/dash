@@ -20,6 +20,7 @@ export function Machines() {
   const { user } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [conditionFilter, setConditionFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
@@ -89,8 +90,9 @@ export function Machines() {
         machine.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
         machine.model.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesStatus = statusFilter === 'all' || machine.status === statusFilter
+      const matchesCondition = conditionFilter === 'all' || machine.condition === conditionFilter
       const matchesType = typeFilter === 'all' || machine.typeId === typeFilter
-      return matchesSearch && matchesStatus && matchesType
+      return matchesSearch && matchesStatus && matchesCondition && matchesType
     })
     .sort((a, b) => {
       const orderA = categoryOrder[a.type?.name || ''] ?? 99
@@ -105,9 +107,18 @@ export function Machines() {
     { value: 'in_use', label: 'In Use' },
     { value: 'maintenance', label: 'Maintenance' },
     { value: 'offline', label: 'Offline' },
-    { value: 'error', label: 'Error' },
-    { value: 'damaged_but_usable', label: 'Damaged (Usable)' },
   ]
+
+  const conditionOptions: { value: string; label: string }[] = [
+    { value: 'all', label: 'All Condition' },
+    { value: 'functional', label: 'Functional' },
+    { value: 'degraded', label: 'Degraded' },
+    { value: 'broken', label: 'Broken' },
+  ]
+
+  const handleClaimChange = (updated: typeof machines[0]) => {
+    setMachines(machines.map((m) => (m.id === updated.id ? updated : m)))
+  }
 
   return (
     <div className="space-y-6">
@@ -140,12 +151,24 @@ export function Machines() {
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectTrigger className="w-full sm:w-[150px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
                 {statusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={conditionFilter} onValueChange={setConditionFilter}>
+              <SelectTrigger className="w-full sm:w-[150px]">
+                <SelectValue placeholder="Filter by condition" />
+              </SelectTrigger>
+              <SelectContent>
+                {conditionOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -174,7 +197,7 @@ export function Machines() {
       {/* Machine Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredMachines.map((machine) => (
-          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} />
+          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} onClaimChange={handleClaimChange} />
         ))}
       </div>
 

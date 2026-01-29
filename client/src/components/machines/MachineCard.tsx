@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff } from 'lucide-react'
-import { Card, CardContent, Badge } from '@/components/common'
-import type { Machine, MachineStatus } from '@/types'
+import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2 } from 'lucide-react'
+import { Card, CardContent, Badge, Button } from '@/components/common'
+import { useAuthStore } from '@/store/authStore'
+import { machineService } from '@/services/machines'
+import type { Machine, MachineStatus, MachineCondition } from '@/types'
 
 interface PingStatus {
   machineId: string
@@ -13,6 +16,7 @@ interface PingStatus {
 interface MachineCardProps {
   machine: Machine
   pingStatus?: PingStatus
+  onClaimChange?: (updated: Machine) => void
 }
 
 const statusColors: Record<MachineStatus, string> = {
@@ -20,17 +24,25 @@ const statusColors: Record<MachineStatus, string> = {
   in_use: 'bg-blue-500',
   maintenance: 'bg-yellow-500',
   offline: 'bg-gray-500',
-  error: 'bg-red-500',
-  damaged_but_usable: 'hazard-stripes',
 }
 
-const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary' | 'destructive' | 'caution'> = {
+const statusBadgeVariants: Record<MachineStatus, 'success' | 'default' | 'warning' | 'secondary'> = {
   available: 'success',
   in_use: 'default',
   maintenance: 'warning',
   offline: 'secondary',
-  error: 'destructive',
-  damaged_but_usable: 'caution',
+}
+
+const conditionColors: Record<MachineCondition, string> = {
+  functional: 'bg-green-500',
+  degraded: 'hazard-stripes',
+  broken: 'bg-red-500',
+}
+
+const conditionBadgeVariants: Record<MachineCondition, 'success' | 'caution' | 'destructive'> = {
+  functional: 'success',
+  degraded: 'caution',
+  broken: 'destructive',
 }
 
 function getMachineIcon(type?: { category?: string }) {
@@ -40,31 +52,78 @@ function getMachineIcon(type?: { category?: string }) {
   return <Cpu className="h-8 w-8" />
 }
 
-export function MachineCard({ machine, pingStatus }: MachineCardProps) {
+export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardProps) {
+  const { user } = useAuthStore()
+  const [localMachine, setLocalMachine] = useState(machine)
+  const [claiming, setClaiming] = useState(false)
+  const [releasing, setReleasing] = useState(false)
+
   const isReachable = pingStatus?.reachable
   const hasNetworkConfig = pingStatus !== undefined
   const resolvedHostname = pingStatus?.resolvedHostname
   const resolvedIP = pingStatus?.resolvedIP
 
+  const isOperator = user?.role === 'admin' || user?.role === 'operator'
+  const isAdmin = user?.role === 'admin'
+  const canClaim = isOperator && !localMachine.claimedById && localMachine.status === 'available'
+  const canRelease = isOperator && localMachine.claimedById && (localMachine.claimedById === user?.id || isAdmin)
+
+  const handleClaim = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setClaiming(true)
+    try {
+      const updated = await machineService.claimMachine(localMachine.id, 60)
+      setLocalMachine(updated)
+      onClaimChange?.(updated)
+    } catch (error) {
+      console.error('Failed to claim machine:', error)
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  const handleRelease = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setReleasing(true)
+    try {
+      const updated = await machineService.releaseMachine(localMachine.id)
+      setLocalMachine(updated)
+      onClaimChange?.(updated)
+    } catch (error) {
+      console.error('Failed to release machine:', error)
+    } finally {
+      setReleasing(false)
+    }
+  }
+
+  // Determine the top bar color - use condition color if degraded/broken, otherwise status color
+  const getTopBarColor = () => {
+    if (localMachine.condition === 'broken') return conditionColors.broken
+    if (localMachine.condition === 'degraded') return conditionColors.degraded
+    return statusColors[localMachine.status]
+  }
+
   return (
-    <Link to={`/machines/${machine.id}`}>
+    <Link to={`/machines/${localMachine.id}`}>
       <Card className="group hover:shadow-md transition-shadow cursor-pointer overflow-hidden">
-        <div className={`h-3 ${statusColors[machine.status]}`} />
+        <div className={`h-3 ${getTopBarColor()}`} />
         <CardContent className="p-4">
           {/* Icon + Name/Model (left) | statusNote (right) */}
           <div className="flex items-start gap-4">
             <div className="p-3 rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-              {getMachineIcon(machine.type)}
+              {getMachineIcon(localMachine.type)}
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold truncate">{machine.name}</h3>
+              <h3 className="font-semibold truncate">{localMachine.name}</h3>
               <p className="text-sm text-muted-foreground truncate">
-                {machine.model}
+                {localMachine.model}
               </p>
             </div>
-            {machine.statusNote && (
+            {localMachine.statusNote && (
               <p className="text-xs italic text-muted-foreground text-right max-w-[40%] line-clamp-2 shrink-0">
-                {machine.statusNote}
+                {localMachine.statusNote}
               </p>
             )}
           </div>
@@ -73,11 +132,11 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
           <div className="mt-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <MapPin className="h-3.5 w-3.5" />
-              <span className="truncate">{machine.location}</span>
+              <span className="truncate">{localMachine.location}</span>
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
-              <span>{machine.hourMeter.toLocaleString()} hours</span>
+              <span>{localMachine.hourMeter.toLocaleString()} hours</span>
             </div>
             {(resolvedHostname || resolvedIP) && (
               <div className="text-xs font-mono truncate space-y-0.5">
@@ -96,20 +155,57 @@ export function MachineCard({ machine, pingStatus }: MachineCardProps) {
           </div>
 
           {/* Claimer display */}
-          {machine.claimedBy && (
+          {localMachine.claimedBy && (
             <p className="mt-2 text-xs font-medium text-blue-600 dark:text-blue-400">
-              In use by {machine.claimedBy.name}
+              In use by {localMachine.claimedBy.name}
             </p>
           )}
 
-          {/* Status badge + type name */}
-          <div className="mt-4 flex items-center justify-between">
-            <Badge variant={statusBadgeVariants[machine.status]}>
-              {machine.status.replace('_', ' ')}
-            </Badge>
-            {machine.type && (
+          {/* Claim/Release buttons */}
+          {(canClaim || canRelease) && (
+            <div className="mt-3 flex gap-2">
+              {canClaim && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 h-7 text-xs"
+                  onClick={handleClaim}
+                  disabled={claiming}
+                >
+                  {claiming ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lock className="h-3 w-3" />}
+                  Quick Claim (1hr)
+                </Button>
+              )}
+              {canRelease && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 h-7 text-xs"
+                  onClick={handleRelease}
+                  disabled={releasing}
+                >
+                  {releasing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlock className="h-3 w-3" />}
+                  Release
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Status badge + condition badge + type name */}
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <Badge variant={statusBadgeVariants[localMachine.status]}>
+                {localMachine.status.replace('_', ' ')}
+              </Badge>
+              {localMachine.condition !== 'functional' && (
+                <Badge variant={conditionBadgeVariants[localMachine.condition]}>
+                  {localMachine.condition}
+                </Badge>
+              )}
+            </div>
+            {localMachine.type && (
               <span className="text-xs text-muted-foreground">
-                {machine.type.name}
+                {localMachine.type.name}
               </span>
             )}
           </div>

@@ -81,7 +81,7 @@ export function AddReservationDialog({
     }
   }
 
-  const availableMachines = machines.filter((m) => m.status !== 'offline' && m.status !== 'error')
+  const availableMachines = machines.filter((m) => m.status !== 'offline' && m.status !== 'maintenance')
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>

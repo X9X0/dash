@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { Login, Register, Dashboard, Machines, MachineDetail, MachineEdit, Calendar, Maintenance, Logs, Kiosk, Users, Notifications, MachineTypes, Settings } from './pages'
+import { Login, Register, Dashboard, Machines, MachineDetail, MachineEdit, Calendar, Maintenance, MaintenanceDetail, Logs, Kiosk, Users, Notifications, MachineTypes, Settings } from './pages'
 import { Layout } from './components/Layout'
 import { useAuthStore } from './store/authStore'
 import { initSocket, disconnectSocket } from './services/socket'
@@ -105,6 +105,16 @@ function App() {
           <PrivateRoute>
             <Layout>
               <Maintenance />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/maintenance/:id"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <MaintenanceDetail />
             </Layout>
           </PrivateRoute>
         }
