@@ -1,7 +1,22 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer } from 'lucide-react'
-import { format, formatDistanceToNow, parseISO } from 'date-fns'
+import { format, parseISO, differenceInSeconds } from 'date-fns'
+
+function formatCountdown(expiresAt: string): string {
+  const now = new Date()
+  const expires = parseISO(expiresAt)
+  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
 import api from '@/services/api'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
 import { useAuthStore } from '@/store/authStore'
@@ -27,11 +42,28 @@ export function Kiosk() {
   const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
+  const [countdowns, setCountdowns] = useState<Record<string, string>>({})
   const { theme, setTheme } = useThemeStore()
 
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  // Update countdowns every second for claimed machines
+  useEffect(() => {
+    const updateCountdowns = () => {
+      const newCountdowns: Record<string, string> = {}
+      machines.forEach((m) => {
+        if (m.claimExpiresAt) {
+          newCountdowns[m.id] = formatCountdown(m.claimExpiresAt)
+        }
+      })
+      setCountdowns(newCountdowns)
+    }
+    updateCountdowns()
+    const interval = setInterval(updateCountdowns, 1000)
+    return () => clearInterval(interval)
+  }, [machines])
 
   const fetchData = async () => {
     try {
@@ -277,15 +309,15 @@ export function Kiosk() {
                       {machine.statusNote}
                     </p>
                   )}
-                  {/* Claimer display with time remaining */}
+                  {/* Claimer display with countdown timer */}
                   {machine.claimedBy && (
                     <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 mt-1">
                       <Timer className="h-3 w-3" />
                       <span>
                         {machine.claimedBy.name}
-                        {machine.claimExpiresAt && (
-                          <span className="text-muted-foreground ml-1">
-                            ({formatDistanceToNow(parseISO(machine.claimExpiresAt), { addSuffix: false })} left)
+                        {countdowns[machine.id] && (
+                          <span className="text-muted-foreground ml-1 font-mono">
+                            ({countdowns[machine.id]})
                           </span>
                         )}
                       </span>

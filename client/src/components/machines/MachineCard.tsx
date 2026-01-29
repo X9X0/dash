@@ -1,11 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer } from 'lucide-react'
 import { Card, CardContent, Badge, Button } from '@/components/common'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
-import { formatDistanceToNow, parseISO } from 'date-fns'
+import { parseISO, differenceInSeconds } from 'date-fns'
 import type { Machine, MachineStatus, MachineCondition } from '@/types'
+
+function formatCountdown(expiresAt: string): string {
+  const now = new Date()
+  const expires = parseISO(expiresAt)
+  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
 
 interface PingStatus {
   machineId: string
@@ -58,6 +73,19 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
   const [localMachine, setLocalMachine] = useState(machine)
   const [claiming, setClaiming] = useState(false)
   const [releasing, setReleasing] = useState(false)
+  const [countdown, setCountdown] = useState<string | null>(null)
+
+  // Update countdown every second when machine is claimed
+  useEffect(() => {
+    if (localMachine.claimExpiresAt) {
+      setCountdown(formatCountdown(localMachine.claimExpiresAt))
+      const interval = setInterval(() => {
+        setCountdown(formatCountdown(localMachine.claimExpiresAt!))
+      }, 1000)
+      return () => clearInterval(interval)
+    }
+    setCountdown(null)
+  }, [localMachine.claimExpiresAt])
 
   const isReachable = pingStatus?.reachable
   const hasNetworkConfig = pingStatus !== undefined
@@ -157,15 +185,15 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
             )}
           </div>
 
-          {/* Claimer display with time remaining */}
+          {/* Claimer display with countdown timer */}
           {localMachine.claimedBy && (
             <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400">
               <Timer className="h-3 w-3" />
               <span>
                 {localMachine.claimedBy.name}
-                {localMachine.claimExpiresAt && (
-                  <span className="text-muted-foreground ml-1">
-                    ({formatDistanceToNow(parseISO(localMachine.claimExpiresAt), { addSuffix: false })} left)
+                {countdown && (
+                  <span className="text-muted-foreground ml-1 font-mono">
+                    ({countdown})
                   </span>
                 )}
               </span>

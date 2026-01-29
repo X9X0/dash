@@ -26,7 +26,22 @@ import {
   Upload,
   FileText,
 } from 'lucide-react'
-import { format, parseISO, formatDistanceToNow } from 'date-fns'
+import { format, parseISO, differenceInSeconds } from 'date-fns'
+
+function formatCountdown(expiresAt: string): string {
+  const now = new Date()
+  const expires = parseISO(expiresAt)
+  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
 import {
   Button,
   Card,
@@ -150,6 +165,19 @@ export function MachineDetail() {
   const [claimDuration, setClaimDuration] = useState(60)
   const [claiming, setClaiming] = useState(false)
   const [releasing, setReleasing] = useState(false)
+  const [countdown, setCountdown] = useState<string | null>(null)
+
+  // Update countdown every second when machine is claimed
+  useEffect(() => {
+    if (machine?.claimExpiresAt) {
+      setCountdown(formatCountdown(machine.claimExpiresAt))
+      const interval = setInterval(() => {
+        setCountdown(formatCountdown(machine.claimExpiresAt!))
+      }, 1000)
+      return () => clearInterval(interval)
+    }
+    setCountdown(null)
+  }, [machine?.claimExpiresAt])
 
   // Attachments state
   const [attachments, setAttachments] = useState<MachineAttachment[]>([])
@@ -427,10 +455,11 @@ export function MachineDetail() {
               )}
             </div>
             <p className="text-muted-foreground">{machine.model}</p>
-            {/* Claim info */}
-            {machine.claimedBy && machine.claimExpiresAt && (
-              <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">
-                Claimed by {machine.claimedBy.name} · Expires {formatDistanceToNow(parseISO(machine.claimExpiresAt), { addSuffix: true })}
+            {/* Claim info with countdown */}
+            {machine.claimedBy && countdown && (
+              <p className="text-sm text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1">
+                <Timer className="h-3.5 w-3.5" />
+                Claimed by {machine.claimedBy.name} · <span className="font-mono">{countdown}</span> remaining
               </p>
             )}
           </div>
@@ -443,18 +472,17 @@ export function MachineDetail() {
           {/* Claim/Release buttons */}
           {canClaim && !machine.claimedById && (
             <div className="flex items-center gap-1">
-              <Select value={String(claimDuration)} onValueChange={(v) => setClaimDuration(Number(v))}>
-                <SelectTrigger className="w-[100px] h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="30">30 min</SelectItem>
-                  <SelectItem value="60">1 hr</SelectItem>
-                  <SelectItem value="120">2 hr</SelectItem>
-                  <SelectItem value="240">4 hr</SelectItem>
-                  <SelectItem value="480">8 hr</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={claimDuration}
+                  onChange={(e) => setClaimDuration(Math.max(1, Math.min(1440, Number(e.target.value) || 60)))}
+                  className="w-[70px] h-9 text-center"
+                />
+                <span className="text-sm text-muted-foreground">min</span>
+              </div>
               <Button variant="default" onClick={handleClaim} disabled={claiming}>
                 {claiming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
                 Claim

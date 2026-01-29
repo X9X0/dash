@@ -9,7 +9,22 @@ import { reservationService } from '@/services/reservations'
 import { maintenanceService } from '@/services/maintenance'
 import api from '@/services/api'
 import type { Reservation, MaintenanceRequest } from '@/types'
-import { format, isToday, formatDistanceToNow, parseISO } from 'date-fns'
+import { format, isToday, parseISO, differenceInSeconds } from 'date-fns'
+
+function formatCountdown(expiresAt: string): string {
+  const now = new Date()
+  const expires = parseISO(expiresAt)
+  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
 
 interface PingStatus {
   machineId: string
@@ -26,6 +41,23 @@ export function Dashboard() {
   const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
   const [claimingMachineId, setClaimingMachineId] = useState<string | null>(null)
   const [releasingMachineId, setReleasingMachineId] = useState<string | null>(null)
+  const [countdowns, setCountdowns] = useState<Record<string, string>>({})
+
+  // Update countdowns every second for claimed machines
+  useEffect(() => {
+    const updateCountdowns = () => {
+      const newCountdowns: Record<string, string> = {}
+      machines.forEach((m) => {
+        if (m.claimExpiresAt) {
+          newCountdowns[m.id] = formatCountdown(m.claimExpiresAt)
+        }
+      })
+      setCountdowns(newCountdowns)
+    }
+    updateCountdowns()
+    const interval = setInterval(updateCountdowns, 1000)
+    return () => clearInterval(interval)
+  }, [machines])
 
   const isOperator = user?.role === 'admin' || user?.role === 'operator'
   const isAdmin = user?.role === 'admin'
@@ -283,15 +315,15 @@ export function Dashboard() {
                         {machine.statusNote}
                       </p>
                     )}
-                    {/* Claimer display with time remaining */}
+                    {/* Claimer display with countdown timer */}
                     {machine.claimedBy && (
                       <div className="px-3 pb-1 flex items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
                         <Timer className="h-2.5 w-2.5" />
                         <span>
                           {machine.claimedBy.name}
-                          {machine.claimExpiresAt && (
-                            <span className="text-muted-foreground ml-1">
-                              ({formatDistanceToNow(parseISO(machine.claimExpiresAt), { addSuffix: false })} left)
+                          {countdowns[machine.id] && (
+                            <span className="text-muted-foreground ml-1 font-mono">
+                              ({countdowns[machine.id]})
                             </span>
                           )}
                         </span>
