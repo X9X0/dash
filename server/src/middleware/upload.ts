@@ -1,14 +1,11 @@
 import multer from 'multer'
 import { randomUUID } from 'crypto'
 import { extname, join } from 'path'
-import { fileURLToPath } from 'url'
-import { dirname } from 'path'
 import { mkdirSync } from 'fs'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-const uploadsDir = join(__dirname, '../../uploads')
+// Use process.cwd() for reliable path resolution across dev/prod
+const uploadsDir = join(process.cwd(), 'uploads')
+console.log('Upload directory:', uploadsDir)
 
 // Ensure uploads directory exists
 try {

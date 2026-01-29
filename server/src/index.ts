@@ -38,8 +38,10 @@ const io = new Server(httpServer, {
 app.use(cors())
 app.use(express.json())
 
-// Serve uploaded files
-app.use('/uploads', express.static(join(__dirname, '../uploads')))
+// Serve uploaded files - use process.cwd() for reliable path resolution
+const uploadsPath = join(process.cwd(), 'uploads')
+console.log('Serving uploads from:', uploadsPath)
+app.use('/uploads', express.static(uploadsPath))
 
 // Make io accessible to routes
 app.set('io', io)
