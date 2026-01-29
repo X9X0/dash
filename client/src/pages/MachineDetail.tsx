@@ -975,7 +975,9 @@ export function MachineDetail() {
                               {format(parseISO(log.timestamp), 'MMM d, h:mm a')}
                             </span>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">Source: {log.source}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {log.user ? `by ${log.user.name}` : `Source: ${log.source}`}
+                          </p>
                         </div>
                       </div>
                     )

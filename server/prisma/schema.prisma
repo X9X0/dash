@@ -25,6 +25,7 @@ model User {
   notifications       Notification[]
   claimedMachines     Machine[]           @relation("MachineClaims")
   attachments         MachineAttachment[]
+  machineStatusLogs   MachineStatusLog[]
 
   @@map("users")
 }
@@ -103,12 +104,14 @@ model MachineCustomField {
 model MachineStatusLog {
   id        String   @id @default(cuid())
   machineId String   @map("machine_id")
+  userId    String?  @map("user_id")
   status    String
   condition String?
-  source    String   @default("manual") // manual, api
+  source    String   @default("manual") // manual, api, claim
   timestamp DateTime @default(now())
 
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("machine_status_log")
 }

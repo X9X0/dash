@@ -566,6 +566,7 @@ router.patch('/:id/status', authenticate, requireOperator, async (req: AuthReque
     await prisma.machineStatusLog.create({
       data: {
         machineId: id,
+        userId: req.user!.id,
         status,
         condition: condition || null,
         source: source || 'manual',
@@ -681,6 +682,7 @@ router.patch('/:id/condition', authenticate, requireOperator, async (req: AuthRe
     await prisma.machineStatusLog.create({
       data: {
         machineId: id,
+        userId: req.user!.id,
         status: machine.status,
         condition,
         source: 'manual',
@@ -729,6 +731,7 @@ router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
       }),
       prisma.machineStatusLog.findMany({
         where: { machineId: id },
+        include: { user: { select: { id: true, name: true } } },
         orderBy: { timestamp: 'desc' },
         take: 50,
       }),
@@ -868,7 +871,7 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
 
     // Log status change
     await prisma.machineStatusLog.create({
-      data: { machineId: id, status: 'in_use', source: 'manual' },
+      data: { machineId: id, userId: req.user!.id, status: 'in_use', source: 'claim' },
     })
 
     // Log activity
@@ -925,7 +928,7 @@ router.patch('/:id/release', authenticate, requireOperator, async (req: AuthRequ
 
     // Log status change
     await prisma.machineStatusLog.create({
-      data: { machineId: id, status: 'available', source: 'manual' },
+      data: { machineId: id, userId: req.user!.id, status: 'available', source: 'release' },
     })
 
     // Log activity

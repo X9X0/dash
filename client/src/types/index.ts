@@ -170,6 +170,8 @@ export interface HourEntry {
 export interface MachineStatusLog {
   id: string
   machineId: string
+  userId?: string | null
+  user?: { id: string; name: string } | null
   status: string
   condition?: string | null
   source: string
