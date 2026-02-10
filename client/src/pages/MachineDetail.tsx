@@ -762,8 +762,8 @@ export function MachineDetail() {
 
         {/* Network/IP Info */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="flex items-center gap-2">
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
               <Network className="h-4 w-4" />
               Network
             </CardTitle>
@@ -773,7 +773,7 @@ export function MachineDetail() {
               </Button>
             )}
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4">
             {showAddIP && (
               <div className="mb-4 p-3 border rounded-lg space-y-3">
                 <div className="space-y-2">
@@ -876,8 +876,8 @@ export function MachineDetail() {
 
         {/* Files (Attachments + Service Record Files) */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="flex items-center gap-2">
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
               <Paperclip className="h-4 w-4" />
               Files
             </CardTitle>
@@ -899,7 +899,7 @@ export function MachineDetail() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4">
             {(() => {
               const allFiles = getAllFiles()
               const displayFiles = showAllFiles ? allFiles : allFiles.slice(0, 6)
