@@ -311,7 +311,7 @@ export function Dashboard() {
                     </div>
                     {/* Status Note - more visible */}
                     {machine.statusNote && (
-                      <p className="mx-3 mb-1 text-xs italic text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5 truncate" title={machine.statusNote}>
+                      <p className="mx-3 mb-1 text-xs italic text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5 whitespace-pre-wrap line-clamp-2" title={machine.statusNote}>
                         {machine.statusNote}
                       </p>
                     )}

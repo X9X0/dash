@@ -11,7 +11,11 @@ const updateServiceRecordSchema = z.object({
   type: z.enum(['repair', 'upgrade', 'modification', 'calibration']).optional(),
   description: z.string().optional(),
   partsUsed: z.string().nullable().optional(),
-  cost: z.number().nullable().optional(),
+  cost: z.union([z.number(), z.string()]).nullable().optional().transform((val) => {
+    if (val === null || val === undefined || val === '') return null
+    const num = typeof val === 'string' ? parseFloat(val) : val
+    return isNaN(num) ? null : num
+  }),
   performedBy: z.string().optional(),
   performedAt: z.string().optional(),
   notes: z.string().nullable().optional(),
