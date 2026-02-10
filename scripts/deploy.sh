@@ -164,36 +164,48 @@ install_system_deps() {
 }
 
 # =============================================================================
-# Install network discovery packages (mDNS/NetBIOS for hostname resolution)
+# Install network discovery packages (LLMNR via systemd-resolved)
 # =============================================================================
 install_network_discovery() {
-    log_info "Installing network discovery packages (mDNS/NetBIOS)..."
+    log_info "Installing network discovery packages (LLMNR/mDNS)..."
 
     case $OS in
         ubuntu|debian)
-            $SUDO apt-get install -y avahi-daemon libnss-mdns winbind libnss-winbind
+            $SUDO apt-get install -y libnss-resolve
             ;;
         fedora)
-            $SUDO dnf install -y avahi nss-mdns samba-winbind samba-winbind-clients
+            $SUDO dnf install -y systemd-resolved nss-resolve
             ;;
     esac
 
-    # Enable and start avahi-daemon
-    $SUDO systemctl enable avahi-daemon 2>/dev/null || true
-    $SUDO systemctl start avahi-daemon 2>/dev/null || true
+    # Enable LLMNR in systemd-resolved for local hostname resolution
+    local RESOLVED_CONF="/etc/systemd/resolved.conf"
+    if [ -f "$RESOLVED_CONF" ]; then
+        if grep -q "^LLMNR=yes" "$RESOLVED_CONF"; then
+            log_success "LLMNR already enabled in systemd-resolved"
+        else
+            log_info "Enabling LLMNR in systemd-resolved..."
+            if grep -q "^#*LLMNR=" "$RESOLVED_CONF"; then
+                $SUDO sed -i 's/^#*LLMNR=.*/LLMNR=yes/' "$RESOLVED_CONF"
+            else
+                $SUDO sed -i '/^\[Resolve\]/a LLMNR=yes' "$RESOLVED_CONF"
+            fi
+            $SUDO systemctl restart systemd-resolved
+            log_success "LLMNR enabled"
+        fi
+    fi
 
-    # Configure nsswitch.conf for mDNS and WINS resolution
+    # Configure nsswitch.conf to use systemd-resolved for name resolution
     if [ -f /etc/nsswitch.conf ]; then
         local HOSTS_LINE
         HOSTS_LINE=$(grep "^hosts:" /etc/nsswitch.conf)
 
-        # Only modify if 'wins' is not already present
-        if ! echo "$HOSTS_LINE" | grep -q "wins"; then
-            log_info "Updating /etc/nsswitch.conf for network name resolution..."
-            $SUDO sed -i 's/^hosts:.*/hosts:          files mdns4_minimal [NOTFOUND=return] dns wins/' /etc/nsswitch.conf
-            log_success "nsswitch.conf updated"
+        if echo "$HOSTS_LINE" | grep -q "resolve \[!UNAVAIL=return\]"; then
+            log_success "nsswitch.conf already configured for systemd-resolved"
         else
-            log_success "nsswitch.conf already configured for network discovery"
+            log_info "Updating /etc/nsswitch.conf for systemd-resolved..."
+            $SUDO sed -i 's/^hosts:.*/hosts:          files resolve [!UNAVAIL=return] dns/' /etc/nsswitch.conf
+            log_success "nsswitch.conf updated"
         fi
     fi
 
