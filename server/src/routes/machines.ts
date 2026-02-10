@@ -776,7 +776,13 @@ router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) =
       include: { user: { select: { id: true, name: true } } },
       orderBy: { performedAt: 'desc' },
     })
-    res.json(records)
+    // Parse photos and attachments JSON
+    const parsedRecords = records.map((record) => ({
+      ...record,
+      photos: record.photos ? JSON.parse(record.photos) : [],
+      attachments: record.attachments ? JSON.parse(record.attachments) : [],
+    }))
+    res.json(parsedRecords)
   } catch (error) {
     console.error('Get service history error:', error)
     res.status(500).json({ error: 'Failed to get service history' })
@@ -784,14 +790,14 @@ router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) =
 })
 
 // Add service record
-router.post('/:id/service-history', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
+router.post('/:id/service-history', authenticate, requireOperator, upload.fields([{ name: 'photos', maxCount: 5 }, { name: 'attachments', maxCount: 10 }]), async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
     const data = req.body
 
-    // Handle file uploads
-    const files = req.files as Express.Multer.File[] | undefined
-    const photoPaths = files?.map((f) => `/uploads/${f.filename}`) || []
+    // Handle photo uploads
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined
+    const photoPaths = files?.photos?.map((f) => `/uploads/${f.filename}`) || []
     // Also accept JSON photo paths from body (for backward compatibility)
     if (data.photos && typeof data.photos === 'string') {
       try {
@@ -799,6 +805,13 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.array(
         if (Array.isArray(parsed)) photoPaths.push(...parsed)
       } catch { /* not JSON */ }
     }
+
+    // Handle general file attachments
+    const attachments = files?.attachments?.map((f) => ({
+      filename: `/uploads/${f.filename}`,
+      originalName: f.originalname,
+      fileType: f.mimetype,
+    })) || []
 
     const record = await prisma.serviceRecord.create({
       data: {
@@ -812,6 +825,7 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.array(
         performedAt: new Date(data.performedAt),
         notes: data.notes || null,
         photos: photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
+        attachments: attachments.length > 0 ? JSON.stringify(attachments) : null,
       },
       include: { user: { select: { id: true, name: true } } },
     })
@@ -826,7 +840,11 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.array(
       },
     })
 
-    res.status(201).json(record)
+    res.status(201).json({
+      ...record,
+      photos: record.photos ? JSON.parse(record.photos) : [],
+      attachments: record.attachments ? JSON.parse(record.attachments) : [],
+    })
   } catch (error) {
     console.error('Add service record error:', error)
     res.status(500).json({ error: 'Failed to add service record' })
@@ -837,16 +855,32 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.array(
 router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
-    const schema = z.object({ duration: z.number().min(5).max(1440).optional() })
-    const { duration = 60 } = schema.parse(req.body)
+    const schema = z.object({
+      duration: z.number().min(5).max(1440).optional(),
+      userId: z.string().optional() // Admin can claim for another user
+    })
+    const { duration = 60, userId } = schema.parse(req.body)
 
     const machine = await prisma.machine.findUnique({ where: { id } })
     if (!machine) {
       return res.status(404).json({ error: 'Machine not found' })
     }
 
+    // Determine who is claiming the machine
+    const claimingUserId = userId && req.user!.role === 'admin' ? userId : req.user!.id
+
+    // If claiming for another user, verify they exist
+    if (userId && req.user!.role === 'admin') {
+      const targetUser = await prisma.user.findUnique({ where: { id: userId } })
+      if (!targetUser) {
+        return res.status(404).json({ error: 'Target user not found' })
+      }
+    } else if (userId && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can claim on behalf of other users' })
+    }
+
     // Reject if already claimed by someone else
-    if (machine.claimedById && machine.claimedById !== req.user!.id) {
+    if (machine.claimedById && machine.claimedById !== req.user!.id && machine.claimedById !== claimingUserId) {
       // Check if claim is expired
       if (machine.claimExpiresAt && new Date(machine.claimExpiresAt) > new Date()) {
         return res.status(409).json({ error: 'Machine is already claimed by another user' })
@@ -859,7 +893,7 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
     const updated = await prisma.machine.update({
       where: { id },
       data: {
-        claimedById: req.user!.id,
+        claimedById: claimingUserId,
         claimedAt: now,
         claimExpiresAt: expiresAt,
         status: 'in_use',
@@ -872,7 +906,7 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
 
     // Log status change
     await prisma.machineStatusLog.create({
-      data: { machineId: id, userId: req.user!.id, status: 'in_use', source: 'claim' },
+      data: { machineId: id, userId: claimingUserId, status: 'in_use', source: 'claim' },
     })
 
     // Log activity
@@ -881,12 +915,14 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
         machineId: id,
         userId: req.user!.id,
         action: 'machine_claimed',
-        details: `Claimed for ${duration} minutes`,
+        details: userId && req.user!.role === 'admin'
+          ? `Claimed for ${duration} minutes on behalf of ${updated.claimedBy?.name}`
+          : `Claimed for ${duration} minutes`,
       },
     })
 
     const io = req.app.get('io')
-    io.emit('machine:claimed', { machineId: id, claimedBy: { id: req.user!.id, name: req.user!.name }, expiresAt: expiresAt.toISOString() })
+    io.emit('machine:claimed', { machineId: id, claimedBy: updated.claimedBy, expiresAt: expiresAt.toISOString() })
 
     res.json(updated)
   } catch (error) {

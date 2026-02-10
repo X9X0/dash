@@ -207,6 +207,7 @@ model ServiceRecord {
   performedAt DateTime @map("performed_at")
   notes       String?
   photos      String?  // JSON array of file paths
+  attachments String?  // JSON array of attachment objects {filename, originalName, fileType}
 
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)

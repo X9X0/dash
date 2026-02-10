@@ -36,10 +36,11 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       orderBy: { performedAt: 'desc' },
     })
 
-    // Parse photos JSON
+    // Parse photos and attachments JSON
     const parsedRecords = records.map((record) => ({
       ...record,
       photos: record.photos ? JSON.parse(record.photos) : [],
+      attachments: record.attachments ? JSON.parse(record.attachments) : [],
     }))
 
     res.json(parsedRecords)
@@ -68,6 +69,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     res.json({
       ...record,
       photos: record.photos ? JSON.parse(record.photos) : [],
+      attachments: record.attachments ? JSON.parse(record.attachments) : [],
     })
   } catch (error) {
     console.error('Get service record error:', error)
@@ -76,7 +78,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 })
 
 // Update service record
-router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
+router.patch('/:id', authenticate, requireOperator, upload.fields([{ name: 'photos', maxCount: 5 }, { name: 'attachments', maxCount: 10 }]), async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
     const data = updateServiceRecordSchema.parse(req.body)
@@ -91,14 +93,25 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
       updateData.performedAt = new Date(data.performedAt)
     }
 
-    // Handle file uploads - merge with existing photos
-    const files = req.files as Express.Multer.File[] | undefined
-    if (files && files.length > 0) {
-      const newPhotos = files.map((f) => `/uploads/${f.filename}`)
+    // Handle photo uploads - merge with existing photos
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined
+    if (files?.photos && files.photos.length > 0) {
+      const newPhotos = files.photos.map((f) => `/uploads/${f.filename}`)
       const existingPhotos = existing.photos ? JSON.parse(existing.photos) : []
       updateData.photos = JSON.stringify([...existingPhotos, ...newPhotos])
     } else if (data.photos !== undefined) {
       updateData.photos = data.photos ? JSON.stringify(data.photos) : null
+    }
+
+    // Handle general file attachments - merge with existing attachments
+    if (files?.attachments && files.attachments.length > 0) {
+      const newAttachments = files.attachments.map((f) => ({
+        filename: `/uploads/${f.filename}`,
+        originalName: f.originalname,
+        fileType: f.mimetype,
+      }))
+      const existingAttachments = existing.attachments ? JSON.parse(existing.attachments) : []
+      updateData.attachments = JSON.stringify([...existingAttachments, ...newAttachments])
     }
 
     const record = await prisma.serviceRecord.update({
@@ -113,6 +126,7 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
     res.json({
       ...record,
       photos: record.photos ? JSON.parse(record.photos) : [],
+      attachments: record.attachments ? JSON.parse(record.attachments) : [],
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

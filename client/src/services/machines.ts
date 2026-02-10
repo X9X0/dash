@@ -56,8 +56,8 @@ export const machineService = {
     return data
   },
 
-  async claimMachine(id: string, duration?: number): Promise<Machine> {
-    const { data } = await api.patch<Machine>(`/machines/${id}/claim`, { duration })
+  async claimMachine(id: string, duration?: number, userId?: string): Promise<Machine> {
+    const { data } = await api.patch<Machine>(`/machines/${id}/claim`, { duration, userId })
     return data
   },
 

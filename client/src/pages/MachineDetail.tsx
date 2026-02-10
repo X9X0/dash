@@ -58,6 +58,7 @@ import {
   SelectValue,
 } from '@/components/common'
 import { machineService } from '@/services/machines'
+import { userService } from '@/services/users'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
 import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
@@ -163,6 +164,8 @@ export function MachineDetail() {
 
   // Claim state
   const [claimDuration, setClaimDuration] = useState(60)
+  const [claimingUserId, setClaimingUserId] = useState<string>('')
+  const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
   const [claiming, setClaiming] = useState(false)
   const [releasing, setReleasing] = useState(false)
   const [countdown, setCountdown] = useState<string | null>(null)
@@ -190,7 +193,19 @@ export function MachineDetail() {
       fetchTimeline()
       fetchAttachments()
     }
-  }, [id])
+    if (isAdmin) {
+      fetchUsers()
+    }
+  }, [id, isAdmin])
+
+  const fetchUsers = async () => {
+    try {
+      const allUsers = await userService.getAll()
+      setUsers(allUsers.map(u => ({ id: u.id, name: u.name })))
+    } catch (error) {
+      console.error('Failed to fetch users:', error)
+    }
+  }
 
   const fetchMachine = async () => {
     try {
@@ -356,8 +371,10 @@ export function MachineDetail() {
     if (!machine) return
     setClaiming(true)
     try {
-      const updated = await machineService.claimMachine(machine.id, claimDuration)
+      const userId = claimingUserId || undefined
+      const updated = await machineService.claimMachine(machine.id, claimDuration, userId)
       setMachine((prev) => prev ? { ...prev, ...updated } : null)
+      setClaimingUserId('') // Reset the user selection
       fetchTimeline() // Refresh to show new status log with user
     } catch (error) {
       console.error('Failed to claim machine:', error)
@@ -413,6 +430,57 @@ export function MachineDetail() {
     } catch (error) {
       console.error('Failed to delete attachment:', error)
     }
+  }
+
+  // Gather all files from service records and attachments
+  const getAllFiles = () => {
+    const files: Array<{
+      id: string
+      filename: string
+      originalName: string
+      fileType: string
+      createdAt: string
+      userId?: string
+      userName?: string
+      source: 'attachment' | 'service-record'
+      serviceRecordId?: string
+    }> = []
+
+    // Add machine attachments
+    attachments.forEach((att) => {
+      files.push({
+        id: att.id,
+        filename: `/uploads/${att.filename}`,
+        originalName: att.originalName,
+        fileType: att.fileType,
+        createdAt: att.createdAt,
+        userId: att.userId,
+        userName: att.user?.name,
+        source: 'attachment',
+      })
+    })
+
+    // Add service record attachments
+    serviceRecords.forEach((record) => {
+      if (record.attachments && record.attachments.length > 0) {
+        record.attachments.forEach((att, idx) => {
+          files.push({
+            id: `${record.id}-${idx}`,
+            filename: att.filename,
+            originalName: att.originalName,
+            fileType: att.fileType,
+            createdAt: record.performedAt,
+            userId: record.userId,
+            userName: record.user?.name,
+            source: 'service-record',
+            serviceRecordId: record.id,
+          })
+        })
+      }
+    })
+
+    // Sort by date, most recent first
+    return files.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }
 
   if (loading) {
@@ -480,6 +548,19 @@ export function MachineDetail() {
           {/* Claim/Release buttons */}
           {canClaim && !machine.claimedById && (
             <div className="flex items-center gap-1">
+              {isAdmin && users.length > 0 && (
+                <Select value={claimingUserId} onValueChange={setClaimingUserId}>
+                  <SelectTrigger className="w-[140px] h-9">
+                    <SelectValue placeholder="For yourself" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Yourself</SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <div className="flex items-center gap-1">
                 <Input
                   type="number"
@@ -597,22 +678,27 @@ export function MachineDetail() {
                 )}
               </div>
               {editingStatusNote ? (
-                <div className="flex items-center gap-2">
-                  <Input
+                <div className="flex flex-col gap-2">
+                  <textarea
                     value={statusNoteValue}
                     onChange={(e) => setStatusNoteValue(e.target.value)}
-                    placeholder="Short status note..."
-                    className="h-8 text-sm"
+                    placeholder="Status note (2-3 lines)..."
+                    className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                    rows={3}
                   />
-                  <Button size="sm" className="h-8" onClick={handleSaveStatusNote} disabled={savingStatusNote}>
-                    <Check className="h-3 w-3" />
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingStatusNote(false)}>
-                    <X className="h-3 w-3" />
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleSaveStatusNote} disabled={savingStatusNote}>
+                      <Check className="h-3 w-3 mr-1" />
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingStatusNote(false)}>
+                      <X className="h-3 w-3 mr-1" />
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               ) : (
-                <p className={`text-sm ${machine.statusNote ? 'italic' : 'text-muted-foreground'}`}>
+                <p className={`text-sm whitespace-pre-wrap ${machine.statusNote ? 'italic' : 'text-muted-foreground'}`}>
                   {machine.statusNote || 'No status note'}
                 </p>
               )}
@@ -880,6 +966,22 @@ export function MachineDetail() {
                                 ))}
                               </div>
                             )}
+                            {/* Attachments */}
+                            {record.attachments && record.attachments.length > 0 && (
+                              <div className="flex flex-col gap-1 mt-2">
+                                {record.attachments.map((attachment, i) => (
+                                  <a
+                                    key={i}
+                                    href={getPhotoUrl(attachment.filename)}
+                                    download={attachment.originalName}
+                                    className="flex items-center gap-2 px-2 py-1 border rounded text-xs hover:bg-accent"
+                                  >
+                                    <Paperclip className="h-3 w-3" />
+                                    <span className="flex-1 truncate">{attachment.originalName}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {record.cost != null && record.cost > 0 && (
@@ -996,12 +1098,12 @@ export function MachineDetail() {
           </CardContent>
         </Card>
 
-        {/* Attachments */}
+        {/* Files (Attachments + Service Record Files) */}
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Paperclip className="h-4 w-4" />
-              Attachments
+              Files
             </CardTitle>
             {isOperator && (
               <label className="cursor-pointer">
@@ -1021,55 +1123,62 @@ export function MachineDetail() {
             )}
           </CardHeader>
           <CardContent>
-            {attachments.length > 0 ? (
-              <div className="space-y-2">
-                {attachments.map((att) => (
-                  <div key={att.id} className="flex items-center gap-3 p-2 rounded-lg border group">
-                    {isImageFile(att.fileType) ? (
-                      <a href={getPhotoUrl(`/uploads/${att.filename}`)} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={getPhotoUrl(`/uploads/${att.filename}`)}
-                          alt={att.originalName}
-                          className="h-10 w-10 object-cover rounded"
-                        />
-                      </a>
-                    ) : (
-                      <FileText className="h-10 w-10 text-muted-foreground p-2" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={getPhotoUrl(`/uploads/${att.filename}`)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-medium hover:underline truncate block"
-                      >
-                        {att.originalName}
-                      </a>
-                      <p className="text-xs text-muted-foreground">
-                        {att.user?.name} · {format(parseISO(att.createdAt), 'MMM d, yyyy')}
-                      </p>
-                      {att.description && (
-                        <p className="text-xs text-muted-foreground">{att.description}</p>
+            {(() => {
+              const allFiles = getAllFiles()
+              const recentFiles = allFiles.slice(0, 6)
+
+              return allFiles.length > 0 ? (
+                <div className="space-y-2">
+                  {recentFiles.map((file) => (
+                    <div key={file.id} className="flex items-center gap-3 p-2 rounded-lg border group">
+                      {isImageFile(file.fileType) ? (
+                        <a href={getPhotoUrl(file.filename)} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={getPhotoUrl(file.filename)}
+                            alt={file.originalName}
+                            className="h-10 w-10 object-cover rounded"
+                          />
+                        </a>
+                      ) : (
+                        <FileText className="h-10 w-10 text-muted-foreground p-2" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={getPhotoUrl(file.filename)}
+                          download={file.originalName}
+                          className="text-sm font-medium hover:underline truncate block"
+                        >
+                          {file.originalName}
+                        </a>
+                        <p className="text-xs text-muted-foreground">
+                          {file.userName || 'Unknown'} · {format(parseISO(file.createdAt), 'MMM d, yyyy')}
+                          {file.source === 'service-record' && ' · From service record'}
+                        </p>
+                      </div>
+                      {file.source === 'attachment' && (file.userId === user?.id || isAdmin) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteAttachment(file.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       )}
                     </div>
-                    {(att.userId === user?.id || isAdmin) && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                        onClick={() => handleDeleteAttachment(att.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No attachments
-              </p>
-            )}
+                  ))}
+                  {allFiles.length > 6 && (
+                    <p className="text-xs text-muted-foreground text-center pt-2">
+                      Showing 6 most recent files ({allFiles.length} total)
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No files
+                </p>
+              )
+            })()}
           </CardContent>
         </Card>
 

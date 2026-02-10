@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Loader2, Wrench, Image as ImageIcon } from 'lucide-react'
+import { X, Loader2, Wrench, Image as ImageIcon, Paperclip, FileText } from 'lucide-react'
 import {
   Button,
   Input,
@@ -42,17 +42,38 @@ export function AddServiceRecordDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
+  const [attachments, setAttachments] = useState<File[]>([])
   const [formData, setFormData] = useState({
-    type: (editingRecord?.type || 'repair') as ServiceType,
-    description: editingRecord?.description || '',
-    partsUsed: editingRecord?.partsUsed || '',
-    cost: editingRecord?.cost?.toString() || '',
-    performedBy: editingRecord?.performedBy || '',
-    performedAt: editingRecord?.performedAt
-      ? new Date(editingRecord.performedAt).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0],
-    notes: editingRecord?.notes || '',
+    type: 'repair' as ServiceType,
+    description: '',
+    partsUsed: '',
+    cost: '',
+    performedBy: '',
+    performedAt: new Date().toISOString().split('T')[0],
+    notes: '',
   })
+
+  // Update form data when editingRecord changes
+  useEffect(() => {
+    if (editingRecord) {
+      setFormData({
+        type: editingRecord.type,
+        description: editingRecord.description,
+        partsUsed: editingRecord.partsUsed || '',
+        cost: editingRecord.cost?.toString() || '',
+        performedBy: editingRecord.performedBy,
+        performedAt: editingRecord.performedAt
+          ? new Date(editingRecord.performedAt).toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0],
+        notes: editingRecord.notes || '',
+      })
+      setPhotos([])
+      setAttachments([])
+      setError('')
+    } else {
+      resetForm()
+    }
+  }, [editingRecord])
 
   const resetForm = () => {
     setFormData({
@@ -65,6 +86,7 @@ export function AddServiceRecordDialog({
       notes: '',
     })
     setPhotos([])
+    setAttachments([])
     setError('')
   }
 
@@ -85,7 +107,7 @@ export function AddServiceRecordDialog({
 
     try {
       let record: ServiceRecord
-      if (photos.length > 0) {
+      if (photos.length > 0 || attachments.length > 0) {
         const fd = new FormData()
         fd.append('type', formData.type)
         fd.append('description', formData.description.trim())
@@ -95,6 +117,7 @@ export function AddServiceRecordDialog({
         fd.append('performedAt', formData.performedAt)
         if (formData.notes.trim()) fd.append('notes', formData.notes.trim())
         photos.forEach((file) => fd.append('photos', file))
+        attachments.forEach((file) => fd.append('attachments', file))
 
         if (isEditing) {
           const { data } = await api.patch<ServiceRecord>(
@@ -264,9 +287,27 @@ export function AddServiceRecordDialog({
               </div>
             </div>
 
+            {/* Existing photos (when editing) */}
+            {isEditing && editingRecord.photos && editingRecord.photos.length > 0 && (
+              <div className="space-y-2">
+                <Label>Existing Photos</Label>
+                <div className="flex flex-wrap gap-2">
+                  {editingRecord.photos.map((photo, i) => (
+                    <a key={i} href={photo} target="_blank" rel="noopener noreferrer" className="block">
+                      <img
+                        src={photo}
+                        alt={`Photo ${i + 1}`}
+                        className="h-16 w-16 object-cover rounded border hover:opacity-80"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Photo upload */}
             <div className="space-y-2">
-              <Label>Photos</Label>
+              <Label>Add Photos</Label>
               <div className="flex items-center gap-2">
                 <label className="flex items-center gap-2 px-3 py-2 border rounded-md cursor-pointer hover:bg-accent text-sm">
                   <ImageIcon className="h-4 w-4" />
@@ -294,6 +335,61 @@ export function AddServiceRecordDialog({
                       alt={`Preview ${i + 1}`}
                       className="h-16 w-16 object-cover rounded border"
                     />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Existing attachments (when editing) */}
+            {isEditing && editingRecord.attachments && editingRecord.attachments.length > 0 && (
+              <div className="space-y-2">
+                <Label>Existing Attachments</Label>
+                <div className="flex flex-col gap-2">
+                  {editingRecord.attachments.map((attachment, i) => (
+                    <a
+                      key={i}
+                      href={attachment.filename}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 border rounded-md hover:bg-accent text-sm"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      <span className="flex-1 truncate">{attachment.originalName}</span>
+                      <span className="text-xs text-muted-foreground">{attachment.fileType}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* File attachments upload */}
+            <div className="space-y-2">
+              <Label>Add Files (Logs, Firmware, etc.)</Label>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 px-3 py-2 border rounded-md cursor-pointer hover:bg-accent text-sm">
+                  <Paperclip className="h-4 w-4" />
+                  Choose Files
+                  <input
+                    type="file"
+                    multiple
+                    onChange={(e) => {
+                      if (e.target.files) setAttachments(Array.from(e.target.files))
+                    }}
+                    className="hidden"
+                  />
+                </label>
+                {attachments.length > 0 && (
+                  <span className="text-xs text-muted-foreground">{attachments.length} file(s) selected</span>
+                )}
+              </div>
+              {attachments.length > 0 && (
+                <div className="flex flex-col gap-2 mt-2">
+                  {attachments.map((file, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2 border rounded-md text-sm">
+                      <FileText className="h-4 w-4" />
+                      <span className="flex-1 truncate">{file.name}</span>
+                      <span className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</span>
+                    </div>
                   ))}
                 </div>
               )}

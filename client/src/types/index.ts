@@ -140,6 +140,12 @@ export interface MaintenanceRequest {
 
 export type ServiceType = 'repair' | 'upgrade' | 'modification' | 'calibration'
 
+export interface ServiceRecordAttachment {
+  filename: string
+  originalName: string
+  fileType: string
+}
+
 export interface ServiceRecord {
   id: string
   machineId: string
@@ -154,6 +160,7 @@ export interface ServiceRecord {
   performedAt: string
   notes: string | null
   photos: string[]
+  attachments?: ServiceRecordAttachment[]
 }
 
 export interface HourEntry {
