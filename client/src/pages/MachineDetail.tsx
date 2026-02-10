@@ -549,12 +549,12 @@ export function MachineDetail() {
           {canClaim && !machine.claimedById && (
             <div className="flex items-center gap-1">
               {isAdmin && users.length > 0 && (
-                <Select value={claimingUserId} onValueChange={setClaimingUserId}>
+                <Select value={claimingUserId || '__self__'} onValueChange={(v) => setClaimingUserId(v === '__self__' ? '' : v)}>
                   <SelectTrigger className="w-[140px] h-9">
                     <SelectValue placeholder="For yourself" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Yourself</SelectItem>
+                    <SelectItem value="__self__">Yourself</SelectItem>
                     {users.map((u) => (
                       <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                     ))}
