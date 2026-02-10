@@ -186,6 +186,7 @@ export function MachineDetail() {
   const [attachments, setAttachments] = useState<MachineAttachment[]>([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [attachmentDescription, setAttachmentDescription] = useState('')
+  const [showAllFiles, setShowAllFiles] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -873,6 +874,96 @@ export function MachineDetail() {
           </CardContent>
         </Card>
 
+        {/* Files (Attachments + Service Record Files) */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Paperclip className="h-4 w-4" />
+              Files
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {isOperator && (
+                <label className="cursor-pointer">
+                  <Button variant="ghost" size="sm" asChild>
+                    <span>
+                      {uploadingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    </span>
+                  </Button>
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={handleUploadAttachment}
+                    disabled={uploadingAttachment}
+                  />
+                </label>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              const allFiles = getAllFiles()
+              const displayFiles = showAllFiles ? allFiles : allFiles.slice(0, 6)
+
+              return allFiles.length > 0 ? (
+                <div className="space-y-2">
+                  {displayFiles.map((file) => (
+                    <div key={file.id} className="flex items-center gap-3 p-2 rounded-lg border group">
+                      {isImageFile(file.fileType) ? (
+                        <a href={getPhotoUrl(file.filename)} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={getPhotoUrl(file.filename)}
+                            alt={file.originalName}
+                            className="h-10 w-10 object-cover rounded"
+                          />
+                        </a>
+                      ) : (
+                        <FileText className="h-10 w-10 text-muted-foreground p-2" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={getPhotoUrl(file.filename)}
+                          download={file.originalName}
+                          className="text-sm font-medium hover:underline truncate block"
+                        >
+                          {file.originalName}
+                        </a>
+                        <p className="text-xs text-muted-foreground">
+                          {file.userName || 'Unknown'} · {format(parseISO(file.createdAt), 'MMM d, yyyy h:mm a')}
+                          {file.source === 'service-record' && ' · Service record'}
+                        </p>
+                      </div>
+                      {file.source === 'attachment' && (file.userId === user?.id || isAdmin) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteAttachment(file.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  {allFiles.length > 6 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setShowAllFiles(!showAllFiles)}
+                    >
+                      {showAllFiles ? 'Show Less' : `Show All (${allFiles.length} files)`}
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No files
+                </p>
+              )
+            })()}
+          </CardContent>
+        </Card>
+
         {/* Unified Timeline: Service & Maintenance */}
         <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -966,21 +1057,12 @@ export function MachineDetail() {
                                 ))}
                               </div>
                             )}
-                            {/* Attachments */}
+                            {/* Attachments count */}
                             {record.attachments && record.attachments.length > 0 && (
-                              <div className="flex flex-col gap-1 mt-2">
-                                {record.attachments.map((attachment, i) => (
-                                  <a
-                                    key={i}
-                                    href={getPhotoUrl(attachment.filename)}
-                                    download={attachment.originalName}
-                                    className="flex items-center gap-2 px-2 py-1 border rounded text-xs hover:bg-accent"
-                                  >
-                                    <Paperclip className="h-3 w-3" />
-                                    <span className="flex-1 truncate">{attachment.originalName}</span>
-                                  </a>
-                                ))}
-                              </div>
+                              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                <Paperclip className="h-3 w-3" />
+                                {record.attachments.length} file{record.attachments.length !== 1 ? 's' : ''} uploaded
+                              </p>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
@@ -1093,90 +1175,6 @@ export function MachineDetail() {
                     )
                   })}
                 </div>
-              )
-            })()}
-          </CardContent>
-        </Card>
-
-        {/* Files (Attachments + Service Record Files) */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Paperclip className="h-4 w-4" />
-              Files
-            </CardTitle>
-            {isOperator && (
-              <label className="cursor-pointer">
-                <Button variant="ghost" size="sm" asChild>
-                  <span>
-                    {uploadingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  </span>
-                </Button>
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={handleUploadAttachment}
-                  accept="image/*,.pdf,.txt,.zip"
-                  disabled={uploadingAttachment}
-                />
-              </label>
-            )}
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const allFiles = getAllFiles()
-              const recentFiles = allFiles.slice(0, 6)
-
-              return allFiles.length > 0 ? (
-                <div className="space-y-2">
-                  {recentFiles.map((file) => (
-                    <div key={file.id} className="flex items-center gap-3 p-2 rounded-lg border group">
-                      {isImageFile(file.fileType) ? (
-                        <a href={getPhotoUrl(file.filename)} target="_blank" rel="noopener noreferrer">
-                          <img
-                            src={getPhotoUrl(file.filename)}
-                            alt={file.originalName}
-                            className="h-10 w-10 object-cover rounded"
-                          />
-                        </a>
-                      ) : (
-                        <FileText className="h-10 w-10 text-muted-foreground p-2" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <a
-                          href={getPhotoUrl(file.filename)}
-                          download={file.originalName}
-                          className="text-sm font-medium hover:underline truncate block"
-                        >
-                          {file.originalName}
-                        </a>
-                        <p className="text-xs text-muted-foreground">
-                          {file.userName || 'Unknown'} · {format(parseISO(file.createdAt), 'MMM d, yyyy')}
-                          {file.source === 'service-record' && ' · From service record'}
-                        </p>
-                      </div>
-                      {file.source === 'attachment' && (file.userId === user?.id || isAdmin) && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteAttachment(file.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                  {allFiles.length > 6 && (
-                    <p className="text-xs text-muted-foreground text-center pt-2">
-                      Showing 6 most recent files ({allFiles.length} total)
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No files
-                </p>
               )
             })()}
           </CardContent>

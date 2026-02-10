@@ -738,10 +738,11 @@ router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
       }),
     ])
 
-    // Parse photos JSON for both service records and maintenance requests
+    // Parse photos and attachments JSON for service records
     const parsedServiceRecords = serviceRecords.map((r) => ({
       ...r,
       photos: r.photos ? JSON.parse(r.photos) : [],
+      attachments: r.attachments ? JSON.parse(r.attachments) : [],
     }))
     const parsedMaintenanceRequests = maintenanceRequests.map((r) => ({
       ...r,
