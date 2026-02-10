@@ -605,13 +605,13 @@ export function MachineDetail() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3">
         {/* Main Info */}
         <Card className="lg:col-span-2 lg:row-span-2">
-          <CardHeader>
+          <CardHeader className="pb-3">
             <CardTitle>Machine Details</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex items-center gap-3">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -762,7 +762,7 @@ export function MachineDetail() {
 
         {/* Network/IP Info */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="flex items-center gap-2">
               <Network className="h-4 w-4" />
               Network
@@ -876,7 +876,7 @@ export function MachineDetail() {
 
         {/* Files (Attachments + Service Record Files) */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="flex items-center gap-2">
               <Paperclip className="h-4 w-4" />
               Files
