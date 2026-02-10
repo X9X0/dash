@@ -283,12 +283,12 @@ export function Dashboard() {
                       {(resolvedHostname || resolvedIP) && (
                         <div className="text-[10px] font-mono">
                           {resolvedHostname && (
-                            <p className="text-blue-600 dark:text-blue-400 truncate" title={resolvedHostname}>
+                            <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={resolvedHostname}>
                               {resolvedHostname}
                             </p>
                           )}
                           {resolvedIP && (
-                            <p className="text-green-600 dark:text-green-400 truncate" title={resolvedIP}>
+                            <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={resolvedIP}>
                               {resolvedIP}
                             </p>
                           )}

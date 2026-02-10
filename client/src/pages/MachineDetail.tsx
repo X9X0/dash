@@ -830,12 +830,12 @@ export function MachineDetail() {
                           {ipPingResult && (resolvedIP || resolvedHostname) ? (
                             <div className="text-xs font-mono mt-0.5 space-y-0.5">
                               {resolvedHostname && (
-                                <p className="text-blue-600 dark:text-blue-400">
+                                <p className={ipPingResult.reachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
                                   {resolvedHostname}
                                 </p>
                               )}
                               {resolvedIP && (
-                                <p className="text-green-600 dark:text-green-400">
+                                <p className={ipPingResult.reachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
                                   {resolvedIP}
                                 </p>
                               )}

@@ -327,12 +327,12 @@ export function Kiosk() {
                   {networkInfo && (networkInfo.ip || networkInfo.hostname) && (
                     <div className="mt-2 text-xs font-mono">
                       {networkInfo.hostname && (
-                        <p className="text-blue-600 dark:text-blue-400 truncate" title={networkInfo.hostname}>
+                        <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={networkInfo.hostname}>
                           {networkInfo.hostname}
                         </p>
                       )}
                       {networkInfo.ip && (
-                        <p className="text-green-600 dark:text-green-400 truncate" title={networkInfo.ip}>
+                        <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={networkInfo.ip}>
                           {networkInfo.ip}
                         </p>
                       )}
