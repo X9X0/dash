@@ -25,6 +25,7 @@ import type { Machine } from '@/types'
 interface PingStatus {
   machineId: string
   reachable: boolean | null
+  hostnameReachable: boolean | null
   resolvedIP: string | null
   resolvedHostname: string | null
 }
@@ -327,7 +328,7 @@ export function Kiosk() {
                   {networkInfo && (networkInfo.ip || networkInfo.hostname) && (
                     <div className="mt-2 text-xs font-mono">
                       {networkInfo.hostname && (
-                        <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={networkInfo.hostname}>
+                        <p className={`truncate ${status?.hostnameReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={networkInfo.hostname}>
                           {networkInfo.hostname}
                         </p>
                       )}

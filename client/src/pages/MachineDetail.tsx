@@ -81,6 +81,7 @@ interface PingResult {
     resolvedIP: string | null
     resolvedHostname: string | null
     reachable: boolean
+    hostnameReachable: boolean | null
   }>
   reason?: string
 }
@@ -830,7 +831,7 @@ export function MachineDetail() {
                           {ipPingResult && (resolvedIP || resolvedHostname) ? (
                             <div className="text-xs font-mono mt-0.5 space-y-0.5">
                               {resolvedHostname && (
-                                <p className={ipPingResult.reachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                                <p className={ipPingResult.hostnameReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
                                   {resolvedHostname}
                                 </p>
                               )}

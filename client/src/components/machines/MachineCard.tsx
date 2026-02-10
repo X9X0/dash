@@ -25,6 +25,7 @@ function formatCountdown(expiresAt: string): string {
 interface PingStatus {
   machineId: string
   reachable: boolean | null
+  hostnameReachable: boolean | null
   resolvedIP: string | null
   resolvedHostname: string | null
 }
@@ -172,7 +173,7 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
             {(resolvedHostname || resolvedIP) && (
               <div className="text-xs font-mono truncate space-y-0.5">
                 {resolvedHostname && (
-                  <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={resolvedHostname}>
+                  <p className={`truncate ${pingStatus?.hostnameReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={resolvedHostname}>
                     {resolvedHostname}
                   </p>
                 )}

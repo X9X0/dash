@@ -29,6 +29,7 @@ function formatCountdown(expiresAt: string): string {
 interface PingStatus {
   machineId: string
   reachable: boolean | null
+  hostnameReachable: boolean | null
   resolvedIP: string | null
   resolvedHostname: string | null
 }
@@ -265,6 +266,7 @@ export function Dashboard() {
 
                 const resolvedHostname = status?.resolvedHostname
                 const resolvedIP = status?.resolvedIP
+                const isHostnameReachable = status?.hostnameReachable
                 const conditionText = getConditionText()
                 const canClaimThis = isOperator && !machine.claimedById && machine.status === 'available'
                 const canReleaseThis = isOperator && machine.claimedById && (machine.claimedById === user?.id || isAdmin)
@@ -283,7 +285,7 @@ export function Dashboard() {
                       {(resolvedHostname || resolvedIP) && (
                         <div className="text-[10px] font-mono">
                           {resolvedHostname && (
-                            <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={resolvedHostname}>
+                            <p className={`truncate ${isHostnameReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={resolvedHostname}>
                               {resolvedHostname}
                             </p>
                           )}

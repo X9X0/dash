@@ -25,6 +25,7 @@ const DNS_TIMEOUT = 2000 // 2 seconds max for any DNS operation
 // --- Ping Result Cache ---
 interface PingCacheEntry {
   reachable: boolean
+  hostnameReachable: boolean | null
   resolvedIP: string | null
   resolvedHostname: string | null
   timestamp: number
@@ -1186,6 +1187,9 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
         const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress, machine.name)
         const pingTarget = resolvedIP || ip.ipAddress
 
+        // Determine hostname ping target: if ipAddress is an IP, use resolvedHostname; if it's a hostname, use ipAddress
+        const hostnamePingTarget = isIPAddress(ip.ipAddress) ? resolvedHostname : ip.ipAddress
+
         // Check ping cache first
         const cached = getCachedPing(pingTarget)
         if (cached) {
@@ -1196,15 +1200,20 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
             resolvedIP: cached.resolvedIP ?? resolvedIP,
             resolvedHostname: cached.resolvedHostname ?? resolvedHostname,
             reachable: cached.reachable,
+            hostnameReachable: cached.hostnameReachable,
           }
         }
 
-        // Ping with retry (2 attempts before declaring offline)
-        const reachable = await pingWithRetry(pingTarget, 2)
+        // Ping IP and hostname in parallel (2 attempts before declaring offline)
+        const [reachable, hostnameReachable] = await Promise.all([
+          pingWithRetry(pingTarget, 2),
+          hostnamePingTarget ? pingWithRetry(hostnamePingTarget, 2) : Promise.resolve(null),
+        ])
 
         // Cache the result
         pingCache.set(pingTarget, {
           reachable,
+          hostnameReachable,
           resolvedIP,
           resolvedHostname,
           timestamp: Date.now(),
@@ -1217,6 +1226,7 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
           resolvedIP,
           resolvedHostname,
           reachable,
+          hostnameReachable,
         }
       })
     )
@@ -1236,12 +1246,15 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
 // Helper: ping a single machine's first IP with caching and retry
 async function pingMachineFirstIP(machine: { id: string; name: string; ips: Array<{ ipAddress: string }> }) {
   if (!machine.ips || machine.ips.length === 0) {
-    return { machineId: machine.id, reachable: null, resolvedIP: null, resolvedHostname: null }
+    return { machineId: machine.id, reachable: null, hostnameReachable: null, resolvedIP: null, resolvedHostname: null }
   }
 
   const ip = machine.ips[0]
   const { resolvedIP, resolvedHostname } = await resolveAddress(ip.ipAddress, machine.name)
   const pingTarget = resolvedIP || ip.ipAddress
+
+  // Determine hostname ping target: if ipAddress is an IP, use resolvedHostname; if it's a hostname, use ipAddress
+  const hostnamePingTarget = isIPAddress(ip.ipAddress) ? resolvedHostname : ip.ipAddress
 
   // Check ping cache first
   const cached = getCachedPing(pingTarget)
@@ -1249,23 +1262,28 @@ async function pingMachineFirstIP(machine: { id: string; name: string; ips: Arra
     return {
       machineId: machine.id,
       reachable: cached.reachable,
+      hostnameReachable: cached.hostnameReachable,
       resolvedIP: cached.resolvedIP ?? resolvedIP,
       resolvedHostname: cached.resolvedHostname ?? resolvedHostname,
     }
   }
 
-  // Ping with retry (2 attempts)
-  const reachable = await pingWithRetry(pingTarget, 2)
+  // Ping IP and hostname in parallel (2 attempts)
+  const [reachable, hostnameReachable] = await Promise.all([
+    pingWithRetry(pingTarget, 2),
+    hostnamePingTarget ? pingWithRetry(hostnamePingTarget, 2) : Promise.resolve(null),
+  ])
 
   // Cache the result
   pingCache.set(pingTarget, {
     reachable,
+    hostnameReachable,
     resolvedIP,
     resolvedHostname,
     timestamp: Date.now(),
   })
 
-  return { machineId: machine.id, reachable, resolvedIP, resolvedHostname }
+  return { machineId: machine.id, reachable, hostnameReachable, resolvedIP, resolvedHostname }
 }
 
 // Ping all machines (batch) - with caching so multiple clients share results

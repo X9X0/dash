@@ -11,6 +11,7 @@ import api from '@/services/api'
 interface PingStatus {
   machineId: string
   reachable: boolean | null
+  hostnameReachable: boolean | null
   resolvedIP: string | null
   resolvedHostname: string | null
 }
