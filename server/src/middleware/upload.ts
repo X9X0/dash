@@ -28,21 +28,17 @@ const storage = multer.diskStorage({
   },
 })
 
-const allowedMimeTypes = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'application/pdf',
-  'text/plain',
-  'application/zip',
+const blockedMimeTypes = [
+  'application/x-msdownload', // .exe
+  'application/x-msdos-program',
+  'application/x-shellscript',
 ]
 
 const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
-  if (allowedMimeTypes.includes(file.mimetype)) {
-    cb(null, true)
-  } else {
+  if (blockedMimeTypes.includes(file.mimetype)) {
     cb(new Error(`File type not allowed: ${file.mimetype}`))
+  } else {
+    cb(null, true)
   }
 }
 
