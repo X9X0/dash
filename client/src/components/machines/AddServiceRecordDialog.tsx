@@ -122,15 +122,13 @@ export function AddServiceRecordDialog({
         if (isEditing) {
           const { data } = await api.patch<ServiceRecord>(
             `/service-records/${editingRecord.id}`,
-            fd,
-            { headers: { 'Content-Type': 'multipart/form-data' } }
+            fd
           )
           record = data
         } else {
           const { data } = await api.post<ServiceRecord>(
             `/machines/${machineId}/service-history`,
-            fd,
-            { headers: { 'Content-Type': 'multipart/form-data' } }
+            fd
           )
           record = data
         }

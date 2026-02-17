@@ -965,127 +965,177 @@ export function MachineDetail() {
           </CardContent>
         </Card>
 
-        {/* Unified Timeline: Service & Maintenance */}
-        <Card className="lg:col-span-3">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Service & Maintenance</CardTitle>
-            {isOperator && (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowMaintenanceRequest(true)}>
-                  <AlertTriangle className="h-4 w-4 mr-1" />
-                  Report Issue
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Record
-                </Button>
-              </div>
-            )}
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              type TimelineEntry =
-                | { type: 'service'; date: string; data: ServiceRecord }
-                | { type: 'maintenance'; date: string; data: MaintenanceRequest }
-                | { type: 'status'; date: string; data: MachineStatusLog }
+        {/* Status History + Service & Maintenance side by side */}
+        <div className="lg:col-span-3 grid gap-4 lg:grid-cols-2">
 
-              const entries: TimelineEntry[] = [
-                ...serviceRecords.map((r) => ({
-                  type: 'service' as const,
-                  date: r.performedAt,
-                  data: r,
-                })),
-                ...maintenanceRequests.map((r) => ({
-                  type: 'maintenance' as const,
-                  date: r.createdAt,
-                  data: r,
-                })),
-                ...(machine.statusLogs || []).map((l) => ({
-                  type: 'status' as const,
-                  date: l.timestamp,
-                  data: l,
-                })),
-              ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          {/* Status History */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Status History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const statusEntries = (machine.statusLogs || [])
+                  .slice()
+                  .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
-              if (entries.length === 0) {
+                if (statusEntries.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <p className="text-muted-foreground">No status changes yet</p>
+                    </div>
+                  )
+                }
+
                 return (
-                  <div className="flex flex-col items-center justify-center py-8">
-                    <p className="text-muted-foreground mb-2">No history yet</p>
-                    {isOperator && (
-                      <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add First Record
-                      </Button>
-                    )}
+                  <div className="space-y-3">
+                    {statusEntries.map((log) => (
+                      <div key={`status-${log.id}`} className="flex items-start gap-3 p-3 rounded-lg border">
+                        <div className="mt-0.5">
+                          <ArrowRightLeft className="h-4 w-4 text-gray-500" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="secondary" className="text-xs">Status Change</Badge>
+                            <Badge variant={statusBadgeVariants[log.status as MachineStatus] || 'secondary'} className="text-xs">
+                              {log.status.replace('_', ' ')}
+                            </Badge>
+                            {log.condition && (
+                              <Badge variant={conditionBadgeVariants[log.condition] || 'secondary'} className="text-xs">
+                                {log.condition}
+                              </Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {format(parseISO(log.timestamp), 'MMM d, h:mm a')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {log.source}{log.user ? ` · by ${log.user.name}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )
-              }
+              })()}
+            </CardContent>
+          </Card>
 
-              return (
-                <div className="space-y-3">
-                  {entries.map((entry) => {
-                    if (entry.type === 'service') {
-                      const record = entry.data as ServiceRecord
-                      return (
-                        <div key={`service-${record.id}`} className="flex items-start gap-3 p-3 rounded-lg border group">
-                          <div className="mt-0.5">
-                            <Wrench className="h-4 w-4 text-blue-500" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="default" className="text-xs">Service</Badge>
-                              <Badge variant="outline" className="text-xs">{record.type}</Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {format(parseISO(record.performedAt), 'MMM d, yyyy')}
-                              </span>
+          {/* Service & Maintenance */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Service & Maintenance</CardTitle>
+              {isOperator && (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowMaintenanceRequest(true)}>
+                    <AlertTriangle className="h-4 w-4 mr-1" />
+                    Report Issue
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Record
+                  </Button>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                type TimelineEntry =
+                  | { type: 'service'; date: string; data: ServiceRecord }
+                  | { type: 'maintenance'; date: string; data: MaintenanceRequest }
+
+                const entries: TimelineEntry[] = [
+                  ...serviceRecords.map((r) => ({
+                    type: 'service' as const,
+                    date: r.performedAt,
+                    data: r,
+                  })),
+                  ...maintenanceRequests.map((r) => ({
+                    type: 'maintenance' as const,
+                    date: r.createdAt,
+                    data: r,
+                  })),
+                ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+                if (entries.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <p className="text-muted-foreground mb-2">No history yet</p>
+                      {isOperator && (
+                        <Button variant="outline" size="sm" onClick={() => setShowServiceRecord(true)}>
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add First Record
+                        </Button>
+                      )}
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {entries.map((entry) => {
+                      if (entry.type === 'service') {
+                        const record = entry.data as ServiceRecord
+                        return (
+                          <div key={`service-${record.id}`} className="flex items-start gap-3 p-3 rounded-lg border group">
+                            <div className="mt-0.5">
+                              <Wrench className="h-4 w-4 text-blue-500" />
                             </div>
-                            <p className="mt-1 text-sm">{record.description}</p>
-                            {record.partsUsed && (
-                              <p className="text-xs text-muted-foreground mt-1">Parts: {record.partsUsed}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground mt-1">By {record.performedBy}</p>
-                            {/* Photos */}
-                            {record.photos && record.photos.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {record.photos.map((photo, i) => (
-                                  <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
-                                    <img
-                                      src={getPhotoUrl(photo)}
-                                      alt={`Photo ${i + 1}`}
-                                      className="h-16 w-16 object-cover rounded border hover:opacity-80"
-                                    />
-                                  </a>
-                                ))}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="default" className="text-xs">Service</Badge>
+                                <Badge variant="outline" className="text-xs">{record.type}</Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {format(parseISO(record.performedAt), 'MMM d, yyyy')}
+                                </span>
                               </div>
-                            )}
-                            {/* Attachments count */}
-                            {record.attachments && record.attachments.length > 0 && (
-                              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                                <Paperclip className="h-3 w-3" />
-                                {record.attachments.length} file{record.attachments.length !== 1 ? 's' : ''} uploaded
-                              </p>
-                            )}
+                              <p className="mt-1 text-sm">{record.description}</p>
+                              {record.partsUsed && (
+                                <p className="text-xs text-muted-foreground mt-1">Parts: {record.partsUsed}</p>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-1">By {record.performedBy}</p>
+                              {/* Photos */}
+                              {record.photos && record.photos.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {record.photos.map((photo, i) => (
+                                    <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                                      <img
+                                        src={getPhotoUrl(photo)}
+                                        alt={`Photo ${i + 1}`}
+                                        className="h-16 w-16 object-cover rounded border hover:opacity-80"
+                                      />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                              {/* Attachments count */}
+                              {record.attachments && record.attachments.length > 0 && (
+                                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                  <Paperclip className="h-3 w-3" />
+                                  {record.attachments.length} file{record.attachments.length !== 1 ? 's' : ''} uploaded
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {record.cost != null && record.cost > 0 && (
+                                <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
+                              )}
+                              {isOperator && (
+                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditServiceRecord(record)}>
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteServiceRecord(record.id)}>
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {record.cost != null && record.cost > 0 && (
-                              <span className="text-sm font-medium">${record.cost.toFixed(2)}</span>
-                            )}
-                            {isOperator && (
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditServiceRecord(record)}>
-                                  <Edit className="h-3 w-3" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteServiceRecord(record.id)}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    }
+                        )
+                      }
 
-                    if (entry.type === 'maintenance') {
+                      // maintenance
                       const request = entry.data as MaintenanceRequest
                       return (
                         <div
@@ -1144,42 +1194,14 @@ export function MachineDetail() {
                           )}
                         </div>
                       )
-                    }
+                    })}
+                  </div>
+                )
+              })()}
+            </CardContent>
+          </Card>
 
-                    // status log
-                    const log = entry.data as MachineStatusLog
-                    return (
-                      <div key={`status-${log.id}`} className="flex items-start gap-3 p-3 rounded-lg border">
-                        <div className="mt-0.5">
-                          <ArrowRightLeft className="h-4 w-4 text-gray-500" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="secondary" className="text-xs">Status Change</Badge>
-                            <Badge variant={statusBadgeVariants[log.status as MachineStatus] || 'secondary'} className="text-xs">
-                              {log.status.replace('_', ' ')}
-                            </Badge>
-                            {log.condition && (
-                              <Badge variant={conditionBadgeVariants[log.condition] || 'secondary'} className="text-xs">
-                                {log.condition}
-                              </Badge>
-                            )}
-                            <span className="text-xs text-muted-foreground">
-                              {format(parseISO(log.timestamp), 'MMM d, h:mm a')}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {log.source}{log.user ? ` · by ${log.user.name}` : ''}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </CardContent>
-        </Card>
+        </div>
 
         {/* Custom Fields */}
         <CustomFieldsCard
