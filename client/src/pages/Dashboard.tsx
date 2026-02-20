@@ -92,6 +92,19 @@ export function Dashboard() {
   }
 
   useEffect(() => {
+    const fetchPing = async () => {
+      try {
+        const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
+        const statusMap: Record<string, PingStatus> = {}
+        pingResults.forEach((result) => {
+          statusMap[result.machineId] = result
+        })
+        setPingStatus(statusMap)
+      } catch (pingError) {
+        console.error('Failed to ping machines:', pingError)
+      }
+    }
+
     const fetchData = async () => {
       setLoading(true)
       try {
@@ -105,23 +118,14 @@ export function Dashboard() {
           reservationsData.filter((r) => isToday(new Date(r.startTime)))
         )
         setPendingMaintenance(maintenanceData)
-
-        // Fetch ping status for all machines
-        try {
-          const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
-          const statusMap: Record<string, PingStatus> = {}
-          pingResults.forEach((result) => {
-            statusMap[result.machineId] = result
-          })
-          setPingStatus(statusMap)
-        } catch (pingError) {
-          console.error('Failed to ping machines:', pingError)
-        }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error)
       } finally {
         setLoading(false)
       }
+
+      // Fetch ping status in background after tiles are visible
+      fetchPing()
     }
     fetchData()
 
