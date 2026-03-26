@@ -25,6 +25,14 @@ import {
   Paperclip,
   Upload,
   FileText,
+  Printer,
+  ExternalLink,
+  Pause,
+  Square,
+  Play,
+  Thermometer,
+  Layers,
+  Camera,
 } from 'lucide-react'
 import { format, parseISO, differenceInSeconds } from 'date-fns'
 
@@ -61,6 +69,8 @@ import { machineService } from '@/services/machines'
 import { userService } from '@/services/users'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
+import { bambuddyService } from '@/services/bambuddy'
+import type { BamBuddyPrinterStatus, BamBuddyPrintLogEntry, BamBuddyConfig } from '@/types/bambuddy'
 import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
@@ -189,15 +199,31 @@ export function MachineDetail() {
   const [attachmentDescription, setAttachmentDescription] = useState('')
   const [showAllFiles, setShowAllFiles] = useState(false)
 
+  // BamBuddy state
+  const [bbStatus, setBbStatus] = useState<BamBuddyPrinterStatus | null>(null)
+  const [bbPrintLog, setBbPrintLog] = useState<BamBuddyPrintLogEntry[]>([])
+  const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
+  const [bbControlling, setBbControlling] = useState(false)
+  const [bbCameraError, setBbCameraError] = useState(false)
+
   useEffect(() => {
     if (id) {
       fetchMachine()
       fetchTimeline()
       fetchAttachments()
+      fetchBamBuddyData()
     }
     if (isAdmin) {
       fetchUsers()
     }
+
+    // Poll BamBuddy status every 10 seconds
+    const bbInterval = setInterval(() => {
+      if (id) {
+        bambuddyService.getStatus(id).then((s) => setBbStatus(s)).catch(() => {})
+      }
+    }, 10000)
+    return () => clearInterval(bbInterval)
   }, [id, isAdmin])
 
   const fetchUsers = async () => {
@@ -206,6 +232,39 @@ export function MachineDetail() {
       setUsers(allUsers.map(u => ({ id: u.id, name: u.name })))
     } catch (error) {
       console.error('Failed to fetch users:', error)
+    }
+  }
+
+  const fetchBamBuddyData = async () => {
+    if (!id) return
+    try {
+      const [status, config, logResponse] = await Promise.all([
+        bambuddyService.getStatus(id),
+        bambuddyService.getConfig(),
+        bambuddyService.getPrintLog(id, 10),
+      ])
+      setBbStatus(status)
+      setBbConfig(config)
+      setBbPrintLog(logResponse.items)
+    } catch {
+      // BamBuddy unavailable or machine not linked
+    }
+  }
+
+  const handleBBControl = async (action: 'stop' | 'pause' | 'resume') => {
+    if (!id || !confirm(`Are you sure you want to ${action} the print?`)) return
+    setBbControlling(true)
+    try {
+      await bambuddyService.controlPrint(id, action)
+      // Re-fetch status after a short delay to reflect the change
+      setTimeout(async () => {
+        const s = await bambuddyService.getStatus(id)
+        setBbStatus(s)
+        setBbControlling(false)
+      }, 2000)
+    } catch (error) {
+      console.error(`Failed to ${action} print:`, error)
+      setBbControlling(false)
     }
   }
 
@@ -875,6 +934,128 @@ export function MachineDetail() {
           </CardContent>
         </Card>
 
+        {/* BamBuddy Print Status */}
+        {bbStatus && !bbStatus.error && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Printer className="h-4 w-4" />
+                Print Status
+              </CardTitle>
+              {bbConfig?.available && bbConfig.publicUrl && (
+                <a
+                  href={bbConfig.publicUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  BamBuddy <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </CardHeader>
+            <CardContent className="px-4 pb-4 space-y-3">
+              {/* State */}
+              <div className="flex items-center justify-between">
+                <Badge
+                  variant={
+                    bbStatus.state === 'RUNNING' ? 'default' :
+                    bbStatus.state === 'IDLE' ? 'success' :
+                    bbStatus.state === 'PAUSE' ? 'warning' :
+                    bbStatus.state === 'FINISH' ? 'success' :
+                    bbStatus.state === 'FAILED' ? 'destructive' :
+                    'secondary'
+                  }
+                >
+                  {bbStatus.state}
+                </Badge>
+                <span className={`text-xs ${bbStatus.connected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {bbStatus.connected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
+
+              {/* Progress (when printing) */}
+              {bbStatus.state === 'RUNNING' && (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium truncate">{bbStatus.current_print || 'Printing...'}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                        style={{ width: `${bbStatus.progress}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-mono font-medium">{bbStatus.progress}%</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    {bbStatus.layer_num != null && bbStatus.total_layers != null && (
+                      <span className="flex items-center gap-1">
+                        <Layers className="h-3 w-3" />
+                        Layer {bbStatus.layer_num}/{bbStatus.total_layers}
+                      </span>
+                    )}
+                    <span>~{Math.round(bbStatus.remaining_time)} min remaining</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Temperatures */}
+              {bbStatus.temperatures && (
+                <div className="flex gap-4 text-xs">
+                  <div className="flex items-center gap-1">
+                    <Thermometer className="h-3 w-3 text-orange-500" />
+                    <span>Nozzle: {Math.round(bbStatus.temperatures.nozzle)}/{bbStatus.temperatures.nozzle_target}&deg;C</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Thermometer className="h-3 w-3 text-blue-500" />
+                    <span>Bed: {Math.round(bbStatus.temperatures.bed)}/{bbStatus.temperatures.bed_target}&deg;C</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Print Controls */}
+              {isOperator && (bbStatus.state === 'RUNNING' || bbStatus.state === 'PAUSE') && (
+                <div className="flex gap-2 pt-1 border-t">
+                  {bbStatus.state === 'RUNNING' && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 h-7 text-xs"
+                        onClick={() => handleBBControl('pause')}
+                        disabled={bbControlling}
+                      >
+                        {bbControlling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pause className="h-3 w-3" />}
+                        Pause
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1 h-7 text-xs"
+                        onClick={() => handleBBControl('stop')}
+                        disabled={bbControlling}
+                      >
+                        {bbControlling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+                        Stop
+                      </Button>
+                    </>
+                  )}
+                  {bbStatus.state === 'PAUSE' && (
+                    <Button
+                      size="sm"
+                      className="flex-1 h-7 text-xs"
+                      onClick={() => handleBBControl('resume')}
+                      disabled={bbControlling}
+                    >
+                      {bbControlling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                      Resume
+                    </Button>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Files (Attachments + Service Record Files) */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
@@ -964,6 +1145,105 @@ export function MachineDetail() {
             })()}
           </CardContent>
         </Card>
+
+        {/* BamBuddy Camera Feed */}
+        {bbStatus && !bbStatus.error && (
+          <Card className="lg:col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Camera className="h-4 w-4" />
+                Camera
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {!bbCameraError ? (
+                <img
+                  src={bambuddyService.getCameraStreamUrl(id!)}
+                  alt="Printer camera feed"
+                  className="w-full rounded-lg bg-muted"
+                  onError={() => setBbCameraError(true)}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Camera className="h-8 w-8 mb-2 opacity-50" />
+                  <p className="text-sm">Camera unavailable</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-xs"
+                    onClick={() => setBbCameraError(false)}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* BamBuddy Recent Prints */}
+        {bbPrintLog.length > 0 && (
+          <Card className="lg:col-span-3">
+            <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Printer className="h-4 w-4" />
+                Recent Prints
+              </CardTitle>
+              {bbConfig?.available && bbConfig.publicUrl && (
+                <a
+                  href={bbConfig.publicUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  View all in BamBuddy <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className="space-y-2">
+                {bbPrintLog.map((entry) => (
+                  <div key={entry.id} className="flex items-center gap-3 p-2 rounded-lg border">
+                    {entry.thumbnail_path ? (
+                      <img
+                        src={bambuddyService.getPrintLogThumbnailUrl(id!, entry.id)}
+                        alt=""
+                        className="h-10 w-10 object-cover rounded bg-muted"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
+                        <Printer className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{entry.print_name || 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.duration_seconds != null && (
+                          <span>{Math.round(entry.duration_seconds / 60)} min</span>
+                        )}
+                        {entry.filament_used_grams != null && (
+                          <span className="ml-2">{entry.filament_used_grams.toFixed(1)}g {entry.filament_type || ''}</span>
+                        )}
+                        {entry.completed_at && (
+                          <span className="ml-2">{format(parseISO(entry.completed_at), 'MMM d, h:mm a')}</span>
+                        )}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        entry.status === 'completed' || entry.status === 'success' ? 'success' :
+                        entry.status === 'failed' ? 'destructive' :
+                        'secondary'
+                      }
+                    >
+                      {entry.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Status History + Service & Maintenance side by side */}
         <div className="lg:col-span-3 grid gap-4 lg:grid-cols-2">

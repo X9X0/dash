@@ -4,9 +4,11 @@ import { Button, Card, CardContent, Input, Select, SelectContent, SelectItem, Se
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
+import { bambuddyService } from '@/services/bambuddy'
 import { MachineCard } from '@/components/machines/MachineCard'
 import { AddMachineDialog } from '@/components/machines/AddMachineDialog'
 import api from '@/services/api'
+import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
 
 interface PingStatus {
   machineId: string
@@ -25,8 +27,20 @@ export function Machines() {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [pingStatus, setPingStatus] = useState<Record<string, PingStatus>>({})
+  const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
 
   useEffect(() => {
+    const fetchBamBuddy = async () => {
+      try {
+        const statuses = await bambuddyService.getAllStatuses()
+        const map: Record<string, BamBuddyPrinterStatus> = {}
+        statuses.forEach((s) => {
+          if (s.dashMachineId) map[s.dashMachineId] = s
+        })
+        setBbStatuses(map)
+      } catch {}
+    }
+
     const fetchPing = async () => {
       try {
         const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
@@ -55,13 +69,14 @@ export function Machines() {
         setLoading(false)
       }
 
-      // Fetch ping status in background after machines are visible
+      // Fetch ping status and BamBuddy in background after machines are visible
       fetchPing()
+      fetchBamBuddy()
     }
     fetchData()
 
-    // Refresh ping status every 30 seconds
-    const pingInterval = setInterval(async () => {
+    // Refresh ping status and BamBuddy every 15 seconds
+    const refreshInterval = setInterval(async () => {
       try {
         const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
         const statusMap: Record<string, PingStatus> = {}
@@ -72,9 +87,10 @@ export function Machines() {
       } catch (error) {
         console.error('Ping refresh failed:', error)
       }
-    }, 30000)
+      fetchBamBuddy()
+    }, 15000)
 
-    return () => clearInterval(pingInterval)
+    return () => clearInterval(refreshInterval)
   }, [setMachines, setMachineTypes, setLoading])
 
   // Define category order for sorting
@@ -202,7 +218,7 @@ export function Machines() {
       {/* Machine Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredMachines.map((machine) => (
-          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} onClaimChange={handleClaimChange} />
+          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} bbStatus={bbStatuses[machine.id]} onClaimChange={handleClaimChange} />
         ))}
       </div>
 

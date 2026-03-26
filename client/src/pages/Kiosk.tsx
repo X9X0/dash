@@ -18,9 +18,11 @@ function formatCountdown(expiresAt: string): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 import api from '@/services/api'
+import { bambuddyService } from '@/services/bambuddy'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
 import { useAuthStore } from '@/store/authStore'
 import type { Machine } from '@/types'
+import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
 
 interface PingStatus {
   machineId: string
@@ -44,6 +46,7 @@ export function Kiosk() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
   const [countdowns, setCountdowns] = useState<Record<string, string>>({})
+  const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
   const { theme, setTheme } = useThemeStore()
 
   useEffect(() => {
@@ -83,6 +86,16 @@ export function Kiosk() {
       } catch {
         console.error('Failed to ping machines')
       }
+
+      // Fetch BamBuddy statuses (public endpoint)
+      try {
+        const statuses = await bambuddyService.getAllStatusesPublic()
+        const map: Record<string, BamBuddyPrinterStatus> = {}
+        statuses.forEach((s) => {
+          if (s.dashMachineId) map[s.dashMachineId] = s
+        })
+        setBbStatuses(map)
+      } catch {}
 
       setLastUpdate(new Date())
     } catch (error) {
@@ -322,6 +335,40 @@ export function Kiosk() {
                           </span>
                         )}
                       </span>
+                    </div>
+                  )}
+                  {/* BamBuddy print status */}
+                  {bbStatuses[machine.id] && !bbStatuses[machine.id].error && (
+                    <div className="mt-2">
+                      {bbStatuses[machine.id].state === 'RUNNING' && (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="truncate text-muted-foreground">{bbStatuses[machine.id].current_print || 'Printing'}</span>
+                            <span className="font-mono font-medium text-blue-600 dark:text-blue-400 ml-1 shrink-0">{bbStatuses[machine.id].progress}%</span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                              style={{ width: `${bbStatuses[machine.id].progress}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            ~{Math.round(bbStatuses[machine.id].remaining_time)} min left
+                          </p>
+                        </div>
+                      )}
+                      {bbStatuses[machine.id].state === 'IDLE' && (
+                        <p className="text-xs text-green-600 dark:text-green-400">Printer idle</p>
+                      )}
+                      {bbStatuses[machine.id].state === 'PAUSE' && (
+                        <p className="text-xs text-yellow-600 dark:text-yellow-400">Print paused</p>
+                      )}
+                      {bbStatuses[machine.id].state === 'FINISH' && (
+                        <p className="text-xs text-green-600 dark:text-green-400">Print finished</p>
+                      )}
+                      {bbStatuses[machine.id].state === 'FAILED' && (
+                        <p className="text-xs text-red-600 dark:text-red-400">Print failed</p>
+                      )}
                     </div>
                   )}
                   {/* Network Info - IP/Hostname */}

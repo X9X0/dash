@@ -4,7 +4,9 @@ import { X, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { reservationService } from '@/services/reservations'
+import { addMinutes } from 'date-fns'
 import type { Machine, Reservation } from '@/types'
+import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
 
 interface AddReservationDialogProps {
   open: boolean
@@ -12,6 +14,7 @@ interface AddReservationDialogProps {
   machines: Machine[]
   selectedDate: Date | null
   onReservationCreated: (reservation: Reservation) => void
+  bbStatuses?: Record<string, BamBuddyPrinterStatus>
 }
 
 export function AddReservationDialog({
@@ -20,6 +23,7 @@ export function AddReservationDialog({
   machines,
   selectedDate,
   onReservationCreated,
+  bbStatuses,
 }: AddReservationDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -111,13 +115,29 @@ export function AddReservationDialog({
                   <SelectValue placeholder="Select a machine" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableMachines.map((machine) => (
-                    <SelectItem key={machine.id} value={machine.id}>
-                      {machine.name} - {machine.location}
-                    </SelectItem>
-                  ))}
+                  {availableMachines.map((machine) => {
+                    const bb = bbStatuses?.[machine.id]
+                    return (
+                      <SelectItem key={machine.id} value={machine.id}>
+                        {machine.name} - {machine.location}
+                        {bb?.state === 'RUNNING' && (
+                          <span className="text-xs text-muted-foreground ml-1">
+                            (printing, free ~{format(addMinutes(new Date(), bb.remaining_time), 'h:mm a')})
+                          </span>
+                        )}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
+              {formData.machineId && bbStatuses?.[formData.machineId]?.state === 'RUNNING' && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-2 py-1">
+                  This printer is currently printing. Estimated free at ~{format(
+                    addMinutes(new Date(), bbStatuses[formData.machineId].remaining_time),
+                    'h:mm a'
+                  )}.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">

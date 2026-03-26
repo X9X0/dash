@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer } from 'lucide-react'
+import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Printer } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
@@ -8,7 +8,9 @@ import { machineService } from '@/services/machines'
 import { reservationService } from '@/services/reservations'
 import { maintenanceService } from '@/services/maintenance'
 import api from '@/services/api'
+import { bambuddyService } from '@/services/bambuddy'
 import type { Reservation, MaintenanceRequest } from '@/types'
+import type { BamBuddyPrinterStatus, BamBuddyQueueItem } from '@/types/bambuddy'
 import { format, isToday, parseISO, differenceInSeconds } from 'date-fns'
 
 function formatCountdown(expiresAt: string): string {
@@ -43,6 +45,8 @@ export function Dashboard() {
   const [claimingMachineId, setClaimingMachineId] = useState<string | null>(null)
   const [releasingMachineId, setReleasingMachineId] = useState<string | null>(null)
   const [countdowns, setCountdowns] = useState<Record<string, string>>({})
+  const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
+  const [bbQueue, setBbQueue] = useState<BamBuddyQueueItem[]>([])
 
   // Update countdowns every second for claimed machines
   useEffect(() => {
@@ -124,13 +128,32 @@ export function Dashboard() {
         setLoading(false)
       }
 
-      // Fetch ping status in background after tiles are visible
+      // Fetch ping status and BamBuddy data in background after tiles are visible
       fetchPing()
+      fetchBamBuddy()
     }
+
+    const fetchBamBuddy = async () => {
+      try {
+        const [statuses, queue] = await Promise.all([
+          bambuddyService.getAllStatuses(),
+          bambuddyService.getQueue(),
+        ])
+        const map: Record<string, BamBuddyPrinterStatus> = {}
+        statuses.forEach((s) => {
+          if (s.dashMachineId) map[s.dashMachineId] = s
+        })
+        setBbStatuses(map)
+        setBbQueue(queue.filter((q) => q.status === 'pending' || q.status === 'printing'))
+      } catch {
+        // BamBuddy unavailable — gracefully ignore
+      }
+    }
+
     fetchData()
 
-    // Refresh ping status every 30 seconds
-    const pingInterval = setInterval(async () => {
+    // Refresh ping status and BamBuddy every 15 seconds
+    const refreshInterval = setInterval(async () => {
       try {
         const { data: pingResults } = await api.get<PingStatus[]>('/machines/ping/all')
         const statusMap: Record<string, PingStatus> = {}
@@ -141,9 +164,10 @@ export function Dashboard() {
       } catch (error) {
         console.error('Ping refresh failed:', error)
       }
-    }, 30000)
+      fetchBamBuddy()
+    }, 15000)
 
-    return () => clearInterval(pingInterval)
+    return () => clearInterval(refreshInterval)
   }, [setMachines, setLoading])
 
   // Count machines that are available AND reachable
@@ -171,6 +195,10 @@ export function Dashboard() {
     return a.name.localeCompare(b.name)
   })
 
+  const printingCount = Object.values(bbStatuses).filter(
+    (s) => s.state === 'RUNNING'
+  ).length
+
   const stats = [
     {
       label: 'Total Machines',
@@ -186,6 +214,17 @@ export function Dashboard() {
       color: 'text-green-500',
       link: '/machines',
     },
+    ...(printingCount > 0
+      ? [
+          {
+            label: 'Printing',
+            value: printingCount,
+            icon: <Printer className="h-5 w-5" />,
+            color: 'text-cyan-500',
+            link: '/machines',
+          },
+        ]
+      : []),
     {
       label: 'Today\'s Reservations',
       value: todayReservations.length,
@@ -335,6 +374,40 @@ export function Dashboard() {
                         </span>
                       </div>
                     )}
+                    {/* BamBuddy print status */}
+                    {bbStatuses[machine.id] && !bbStatuses[machine.id].error && (
+                      <div className="mx-3 mb-1">
+                        {bbStatuses[machine.id].state === 'RUNNING' && (
+                          <div className="space-y-0.5">
+                            <div className="flex justify-between text-[10px]">
+                              <span className="truncate text-muted-foreground">{bbStatuses[machine.id].current_print || 'Printing'}</span>
+                              <span className="font-mono font-medium text-blue-600 dark:text-blue-400 ml-1 shrink-0">{bbStatuses[machine.id].progress}%</span>
+                            </div>
+                            <div className="h-1 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                                style={{ width: `${bbStatuses[machine.id].progress}%` }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              ~{Math.round(bbStatuses[machine.id].remaining_time)} min left
+                            </p>
+                          </div>
+                        )}
+                        {bbStatuses[machine.id].state === 'IDLE' && (
+                          <p className="text-[10px] text-green-600 dark:text-green-400">Printer idle</p>
+                        )}
+                        {bbStatuses[machine.id].state === 'PAUSE' && (
+                          <p className="text-[10px] text-yellow-600 dark:text-yellow-400">Print paused</p>
+                        )}
+                        {bbStatuses[machine.id].state === 'FINISH' && (
+                          <p className="text-[10px] text-green-600 dark:text-green-400">Print finished</p>
+                        )}
+                        {bbStatuses[machine.id].state === 'FAILED' && (
+                          <p className="text-[10px] text-red-600 dark:text-red-400">Print failed</p>
+                        )}
+                      </div>
+                    )}
                     {/* Claim/Release buttons */}
                     {(canClaimThis || canReleaseThis) && (
                       <div className="px-3 pb-2 flex gap-1">
@@ -435,8 +508,48 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* Print Queue (BamBuddy) */}
+        {bbQueue.length > 0 && (
+          <Card className="lg:col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Printer className="h-4 w-4" />
+                Print Queue
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {bbQueue.slice(0, 5).map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 rounded-lg border p-3"
+                  >
+                    <Printer className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate text-sm">
+                        {item.archive_name || item.library_file_name || 'Unknown'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.printer_name || 'Unassigned'}
+                        {item.print_time_seconds && (
+                          <span className="ml-1">
+                            ({Math.round(item.print_time_seconds / 60)} min)
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <Badge variant={item.status === 'printing' ? 'default' : 'secondary'}>
+                      {item.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Alerts & Maintenance */}
-        <Card className="lg:col-span-4">
+        <Card className={bbQueue.length > 0 ? 'lg:col-span-2' : 'lg:col-span-4'}>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Pending Maintenance</CardTitle>
             <Link to="/maintenance" className="text-sm text-primary hover:underline">

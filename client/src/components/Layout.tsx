@@ -15,10 +15,14 @@ import {
   Sun,
   Settings,
   Monitor,
+  Printer,
+  ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './common'
 import { useAuthStore } from '@/store/authStore'
+import { bambuddyService } from '@/services/bambuddy'
+import type { BamBuddyConfig } from '@/types/bambuddy'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
 
@@ -45,6 +49,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
@@ -54,6 +59,10 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  useEffect(() => {
+    bambuddyService.getConfig().then(setBbConfig).catch(() => {})
+  }, [])
 
   const handleLogout = () => {
     logout()
@@ -114,6 +123,18 @@ export function Layout({ children }: LayoutProps) {
                 {item.label}
               </Link>
             ))}
+            {bbConfig?.available && bbConfig.publicUrl && (
+              <a
+                href={bbConfig.publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors mt-2 border-t pt-3"
+              >
+                <Printer className="h-5 w-5" />
+                BamBuddy
+                <ExternalLink className="h-3 w-3 ml-auto opacity-50" />
+              </a>
+            )}
           </nav>
 
           <div className="absolute bottom-0 left-0 right-0 border-t p-4 bg-background">

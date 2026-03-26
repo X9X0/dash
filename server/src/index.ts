@@ -19,6 +19,7 @@ import { maintenanceRouter } from './routes/maintenance.js'
 import { serviceRecordsRouter } from './routes/serviceRecords.js'
 import { activityLogsRouter } from './routes/activityLogs.js'
 import { notificationsRouter } from './routes/notifications.js'
+import { bambuddyRouter } from './routes/bambuddy.js'
 import { setupSocket } from './socket/index.js'
 import { startAutoHourTracking } from './jobs/autoHourTracking.js'
 import { startClaimExpiry } from './jobs/claimExpiry.js'
@@ -62,6 +63,7 @@ app.use('/api/maintenance', maintenanceRouter)
 app.use('/api/service-records', serviceRecordsRouter)
 app.use('/api/activity-logs', activityLogsRouter)
 app.use('/api/notifications', notificationsRouter)
+app.use('/api/bambuddy', bambuddyRouter)
 
 // Health check
 app.get('/api/health', (req, res) => {

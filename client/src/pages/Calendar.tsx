@@ -16,9 +16,11 @@ import {
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { reservationService } from '@/services/reservations'
 import { machineService } from '@/services/machines'
+import { bambuddyService } from '@/services/bambuddy'
 import { useAuthStore } from '@/store/authStore'
 import { AddReservationDialog } from '@/components/calendar/AddReservationDialog'
 import type { Reservation, Machine } from '@/types'
+import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
 
 export function Calendar() {
   const { user } = useAuthStore()
@@ -29,6 +31,7 @@ export function Calendar() {
   const [machineFilter, setMachineFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [, setLoading] = useState(true)
+  const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,6 +48,16 @@ export function Calendar() {
       } finally {
         setLoading(false)
       }
+
+      // Fetch BamBuddy statuses for printer availability
+      try {
+        const statuses = await bambuddyService.getAllStatuses()
+        const map: Record<string, BamBuddyPrinterStatus> = {}
+        statuses.forEach((s) => {
+          if (s.dashMachineId) map[s.dashMachineId] = s
+        })
+        setBbStatuses(map)
+      } catch {}
     }
     fetchData()
   }, [])
@@ -82,6 +95,11 @@ export function Calendar() {
             {machines.map((machine) => (
               <SelectItem key={machine.id} value={machine.id}>
                 {machine.name}
+                {bbStatuses[machine.id]?.state === 'RUNNING' && (
+                  <span className="text-xs text-muted-foreground ml-1">
+                    (printing, ~{Math.round(bbStatuses[machine.id].remaining_time)} min)
+                  </span>
+                )}
               </SelectItem>
             ))}
           </SelectContent>
@@ -252,6 +270,7 @@ export function Calendar() {
         machines={machines}
         selectedDate={selectedDate}
         onReservationCreated={handleReservationCreated}
+        bbStatuses={bbStatuses}
       />
     </div>
   )

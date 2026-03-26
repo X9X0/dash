@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
 import { parseISO, differenceInSeconds } from 'date-fns'
 import type { Machine, MachineStatus, MachineCondition } from '@/types'
+import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
 
 function formatCountdown(expiresAt: string): string {
   const now = new Date()
@@ -33,6 +34,7 @@ interface PingStatus {
 interface MachineCardProps {
   machine: Machine
   pingStatus?: PingStatus
+  bbStatus?: BamBuddyPrinterStatus
   onClaimChange?: (updated: Machine) => void
 }
 
@@ -69,7 +71,7 @@ function getMachineIcon(type?: { category?: string }) {
   return <Cpu className="h-8 w-8" />
 }
 
-export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardProps) {
+export function MachineCard({ machine, pingStatus, bbStatus, onClaimChange }: MachineCardProps) {
   const { user } = useAuthStore()
   const [localMachine, setLocalMachine] = useState(machine)
   const [claiming, setClaiming] = useState(false)
@@ -227,6 +229,41 @@ export function MachineCard({ machine, pingStatus, onClaimChange }: MachineCardP
                   {releasing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Unlock className="h-3 w-3" />}
                   Release
                 </Button>
+              )}
+            </div>
+          )}
+
+          {/* BamBuddy print status */}
+          {bbStatus && !bbStatus.error && (
+            <div className="mt-3">
+              {bbStatus.state === 'RUNNING' && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="truncate text-muted-foreground">{bbStatus.current_print || 'Printing'}</span>
+                    <span className="font-mono font-medium text-blue-600 dark:text-blue-400 ml-1 shrink-0">{bbStatus.progress}%</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                      style={{ width: `${bbStatus.progress}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    ~{Math.round(bbStatus.remaining_time)} min remaining
+                  </p>
+                </div>
+              )}
+              {bbStatus.state === 'IDLE' && (
+                <p className="text-xs text-green-600 dark:text-green-400">Printer idle</p>
+              )}
+              {bbStatus.state === 'PAUSE' && (
+                <p className="text-xs text-yellow-600 dark:text-yellow-400">Print paused</p>
+              )}
+              {bbStatus.state === 'FINISH' && (
+                <p className="text-xs text-green-600 dark:text-green-400">Print finished</p>
+              )}
+              {bbStatus.state === 'FAILED' && (
+                <p className="text-xs text-red-600 dark:text-red-400">Print failed</p>
               )}
             </div>
           )}
