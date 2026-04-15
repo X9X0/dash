@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { ChevronLeft, ChevronRight, Plus, Printer } from 'lucide-react'
 import {
   format,
   startOfMonth,
@@ -9,6 +9,7 @@ import {
   addDays,
   addMonths,
   subMonths,
+  addSeconds,
   isSameMonth,
   isSameDay,
   parseISO,
@@ -20,7 +21,18 @@ import { bambuddyService } from '@/services/bambuddy'
 import { useAuthStore } from '@/store/authStore'
 import { AddReservationDialog } from '@/components/calendar/AddReservationDialog'
 import type { Reservation, Machine } from '@/types'
-import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
+import type { BamBuddyPrinterStatus, BamBuddyQueueItem } from '@/types/bambuddy'
+
+interface PrintEvent {
+  id: string
+  machineName: string
+  dashMachineId: string | null
+  printName: string
+  startTime: Date
+  endTime: Date
+  status: string
+  createdBy: string | null
+}
 
 export function Calendar() {
   const { user } = useAuthStore()
@@ -32,6 +44,7 @@ export function Calendar() {
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [, setLoading] = useState(true)
   const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
+  const [bbQueue, setBbQueue] = useState<BamBuddyQueueItem[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -49,27 +62,77 @@ export function Calendar() {
         setLoading(false)
       }
 
-      // Fetch BamBuddy statuses for printer availability
+      // Fetch BamBuddy statuses and queue for printer availability / calendar
       try {
-        const statuses = await bambuddyService.getAllStatuses()
+        const [statuses, queue] = await Promise.all([
+          bambuddyService.getAllStatuses(),
+          bambuddyService.getQueue(),
+        ])
         const map: Record<string, BamBuddyPrinterStatus> = {}
         statuses.forEach((s) => {
           if (s.dashMachineId) map[s.dashMachineId] = s
         })
         setBbStatuses(map)
+        setBbQueue(queue)
       } catch {}
     }
     fetchData()
   }, [])
 
+  // Convert BamBuddy queue items into calendar-displayable print events
+  const printEvents = useMemo<PrintEvent[]>(() => {
+    return bbQueue
+      .filter((item) => {
+        // Only show items that have timing info
+        if (item.status === 'cancelled' || item.status === 'skipped') return false
+        return item.started_at || item.scheduled_time
+      })
+      .map((item) => {
+        const duration = item.print_time_seconds || 3600 // default 1h if unknown
+        let startTime: Date
+        let endTime: Date
+
+        if (item.started_at) {
+          // Active or completed print — use actual start time
+          startTime = parseISO(item.started_at)
+          endTime = item.completed_at
+            ? parseISO(item.completed_at)
+            : addSeconds(startTime, duration)
+        } else {
+          // Scheduled print — use scheduled_time
+          startTime = parseISO(item.scheduled_time!)
+          endTime = addSeconds(startTime, duration)
+        }
+
+        return {
+          id: `bb-${item.id}`,
+          machineName: item.printer_name || 'Unassigned',
+          dashMachineId: item.dashMachineId,
+          printName: item.archive_name || item.library_file_name || 'Print job',
+          startTime,
+          endTime,
+          status: item.status,
+          createdBy: item.created_by_username,
+        }
+      })
+  }, [bbQueue])
+
   const filteredReservations = reservations.filter(
     (r) => machineFilter === 'all' || r.machineId === machineFilter
+  )
+
+  const filteredPrintEvents = printEvents.filter(
+    (e) => machineFilter === 'all' || e.dashMachineId === machineFilter
   )
 
   const getReservationsForDay = (day: Date) => {
     return filteredReservations.filter((r) =>
       isSameDay(parseISO(r.startTime), day)
     )
+  }
+
+  const getPrintEventsForDay = (day: Date) => {
+    return filteredPrintEvents.filter((e) => isSameDay(e.startTime, day))
   }
 
   const renderHeader = () => (
@@ -140,10 +203,28 @@ export function Calendar() {
     while (day <= endDate) {
       for (let i = 0; i < 7; i++) {
         const dayReservations = getReservationsForDay(day)
+        const dayPrints = getPrintEventsForDay(day)
+        const totalEvents = dayReservations.length + dayPrints.length
         const isCurrentMonth = isSameMonth(day, monthStart)
         const isSelected = selectedDate && isSameDay(day, selectedDate)
         const isToday = isSameDay(day, new Date())
         const currentDay = day
+
+        // Merge and sort all events by start time, show up to 3
+        const allEvents: { type: 'reservation' | 'print'; time: Date; label: string; key: string }[] = [
+          ...dayReservations.map((r) => ({
+            type: 'reservation' as const,
+            time: parseISO(r.startTime),
+            label: `${format(parseISO(r.startTime), 'h:mm a')} ${r.machine?.name}`,
+            key: r.id,
+          })),
+          ...dayPrints.map((p) => ({
+            type: 'print' as const,
+            time: p.startTime,
+            label: `${format(p.startTime, 'h:mm a')} ${p.machineName}`,
+            key: p.id,
+          })),
+        ].sort((a, b) => a.time.getTime() - b.time.getTime())
 
         days.push(
           <div
@@ -159,18 +240,22 @@ export function Calendar() {
               {format(day, 'd')}
             </div>
             <div className="space-y-1">
-              {dayReservations.slice(0, 3).map((reservation) => (
+              {allEvents.slice(0, 3).map((event) => (
                 <div
-                  key={reservation.id}
-                  className="text-xs bg-primary/20 text-primary rounded px-1 py-0.5 truncate"
-                  title={`${reservation.machine?.name} - ${reservation.purpose}`}
+                  key={event.key}
+                  className={`text-xs rounded px-1 py-0.5 truncate ${
+                    event.type === 'print'
+                      ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-400'
+                      : 'bg-primary/20 text-primary'
+                  }`}
+                  title={event.label}
                 >
-                  {format(parseISO(reservation.startTime), 'h:mm a')} {reservation.machine?.name}
+                  {event.label}
                 </div>
               ))}
-              {dayReservations.length > 3 && (
+              {totalEvents > 3 && (
                 <div className="text-xs text-muted-foreground">
-                  +{dayReservations.length - 3} more
+                  +{totalEvents - 3} more
                 </div>
               )}
             </div>
@@ -190,6 +275,7 @@ export function Calendar() {
   }
 
   const selectedDayReservations = selectedDate ? getReservationsForDay(selectedDate) : []
+  const selectedDayPrints = selectedDate ? getPrintEventsForDay(selectedDate) : []
 
   const handleReservationCreated = (reservation: Reservation) => {
     setReservations([...reservations, reservation])
@@ -197,9 +283,23 @@ export function Calendar() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Calendar</h1>
-        <p className="text-muted-foreground">Schedule and manage reservations</p>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Calendar</h1>
+          <p className="text-muted-foreground">Schedule and manage reservations</p>
+        </div>
+        {printEvents.length > 0 && (
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <div className="h-3 w-3 rounded bg-primary/20" />
+              <span>Reservations</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="h-3 w-3 rounded bg-cyan-500/20" />
+              <span>Print Jobs</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
@@ -221,7 +321,7 @@ export function Calendar() {
           </CardHeader>
           <CardContent>
             {selectedDate ? (
-              selectedDayReservations.length > 0 ? (
+              (selectedDayReservations.length > 0 || selectedDayPrints.length > 0) ? (
                 <div className="space-y-3">
                   {selectedDayReservations.map((reservation) => (
                     <div
@@ -249,15 +349,50 @@ export function Calendar() {
                       </p>
                     </div>
                   ))}
+                  {selectedDayPrints.length > 0 && selectedDayReservations.length > 0 && (
+                    <div className="border-t pt-2" />
+                  )}
+                  {selectedDayPrints.map((printEvt) => (
+                    <div
+                      key={printEvt.id}
+                      className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-medium flex items-center gap-1.5">
+                            <Printer className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+                            {printEvt.machineName}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {format(printEvt.startTime, 'h:mm a')} -{' '}
+                            {format(printEvt.endTime, 'h:mm a')}
+                          </p>
+                        </div>
+                        <Badge variant={
+                          printEvt.status === 'printing' ? 'default' :
+                          printEvt.status === 'completed' ? 'success' :
+                          printEvt.status === 'failed' ? 'destructive' : 'secondary'
+                        }>
+                          {printEvt.status}
+                        </Badge>
+                      </div>
+                      <p className="text-sm mt-2 truncate" title={printEvt.printName}>{printEvt.printName}</p>
+                      {printEvt.createdBy && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          By {printEvt.createdBy}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="text-center text-muted-foreground py-8">
-                  No reservations for this day
+                  No events for this day
                 </p>
               )
             ) : (
               <p className="text-center text-muted-foreground py-8">
-                Click on a day to see its reservations
+                Click on a day to see its events
               </p>
             )}
           </CardContent>

@@ -30,6 +30,10 @@ export interface BamBuddyQueueItem {
   archive_thumbnail: string | null
   printer_name: string | null
   dashMachineId: string | null
+  scheduled_time: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_by_username: string | null
 }
 
 export interface BamBuddyPrintLogEntry {
