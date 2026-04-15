@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -205,6 +205,9 @@ export function MachineDetail() {
   const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
   const [bbControlling, setBbControlling] = useState(false)
   const [bbCameraError, setBbCameraError] = useState(false)
+  const [bbCameraLive, setBbCameraLive] = useState(false)
+  const [bbSnapshotUrl, setBbSnapshotUrl] = useState<string | null>(null)
+  const snapshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [bbMaintenance, setBbMaintenance] = useState<BamBuddyMaintenanceOverview | null>(null)
 
   useEffect(() => {
@@ -253,6 +256,34 @@ export function MachineDetail() {
       // BamBuddy unavailable or machine not linked
     }
   }
+
+  // Snapshot refresh: load a new snapshot every 5 seconds when not in live mode
+  const refreshSnapshot = useCallback(() => {
+    if (!id) return
+    // Append timestamp to bust browser cache
+    setBbSnapshotUrl(bambuddyService.getCameraSnapshotUrl(id) + '&_t=' + Date.now())
+  }, [id])
+
+  useEffect(() => {
+    if (!id || !bbStatus || bbStatus.error || bbCameraLive) {
+      // Clear interval when switching to live mode or no printer
+      if (snapshotIntervalRef.current) {
+        clearInterval(snapshotIntervalRef.current)
+        snapshotIntervalRef.current = null
+      }
+      return
+    }
+    // Take initial snapshot immediately
+    refreshSnapshot()
+    // Then refresh every 5 seconds
+    snapshotIntervalRef.current = setInterval(refreshSnapshot, 5000)
+    return () => {
+      if (snapshotIntervalRef.current) {
+        clearInterval(snapshotIntervalRef.current)
+        snapshotIntervalRef.current = null
+      }
+    }
+  }, [id, bbStatus, bbCameraLive, refreshSnapshot])
 
   const handleBBControl = async (action: 'stop' | 'pause' | 'resume') => {
     if (!id || !confirm(`Are you sure you want to ${action} the print?`)) return
@@ -1224,15 +1255,37 @@ export function MachineDetail() {
                 <Camera className="h-4 w-4" />
                 Camera
               </CardTitle>
+              <Button
+                variant={bbCameraLive ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-7"
+                onClick={() => {
+                  setBbCameraError(false)
+                  setBbCameraLive(!bbCameraLive)
+                }}
+              >
+                {bbCameraLive ? 'Live' : 'Snapshot'}
+              </Button>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               {!bbCameraError ? (
-                <img
-                  src={bambuddyService.getCameraStreamUrl(id!)}
-                  alt="Printer camera feed"
-                  className="w-full rounded-lg bg-muted"
-                  onError={() => setBbCameraError(true)}
-                />
+                bbCameraLive ? (
+                  <img
+                    src={bambuddyService.getCameraStreamUrl(id!)}
+                    alt="Printer camera live"
+                    className="w-full rounded-lg bg-muted"
+                    onError={() => setBbCameraError(true)}
+                  />
+                ) : (
+                  bbSnapshotUrl && (
+                    <img
+                      src={bbSnapshotUrl}
+                      alt="Printer camera snapshot"
+                      className="w-full rounded-lg bg-muted"
+                      onError={() => setBbCameraError(true)}
+                    />
+                  )
+                )
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                   <Camera className="h-8 w-8 mb-2 opacity-50" />
@@ -1241,7 +1294,10 @@ export function MachineDetail() {
                     variant="ghost"
                     size="sm"
                     className="mt-2 text-xs"
-                    onClick={() => setBbCameraError(false)}
+                    onClick={() => {
+                      setBbCameraError(false)
+                      if (!bbCameraLive) refreshSnapshot()
+                    }}
                   >
                     Retry
                   </Button>
