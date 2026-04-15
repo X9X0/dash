@@ -60,6 +60,18 @@ export const bambuddyService = {
     }
   },
 
+  async getPrintLogAll(params?: { limit?: number; dateFrom?: string; dateTo?: string }): Promise<BamBuddyPrintLogResponse> {
+    try {
+      const { data } = await api.get<BamBuddyPrintLogResponse>(
+        '/bambuddy/print-log/all',
+        { params: { limit: params?.limit, date_from: params?.dateFrom, date_to: params?.dateTo } }
+      )
+      return data
+    } catch {
+      return { items: [], total: 0 }
+    }
+  },
+
   async getPrintLog(machineId: string, limit = 10): Promise<BamBuddyPrintLogResponse> {
     try {
       const { data } = await api.get<BamBuddyPrintLogResponse>(

@@ -51,6 +51,7 @@ export interface BamBuddyPrintLogEntry {
   thumbnail_path: string | null
   created_by_username: string | null
   created_at: string
+  dashMachineId?: string | null
 }
 
 export interface BamBuddyPrintLogResponse {

@@ -402,6 +402,28 @@ router.get('/queue', authenticate, async (req: AuthRequest, res) => {
   }
 })
 
+// GET /print-log/all - Print history across all printers (for calendar)
+router.get('/print-log/all', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100
+    const dateFrom = req.query.date_from as string | undefined
+    const dateTo = req.query.date_to as string | undefined
+    let url = `/print-log/?limit=${limit}`
+    if (dateFrom) url += `&date_from=${dateFrom}`
+    if (dateTo) url += `&date_to=${dateTo}`
+    const result = await bbFetch(url)
+    // Enrich with dashMachineId
+    const mapping = await refreshMapping()
+    const items = (result?.items || []).map((item: any) => {
+      const linked = mapping.find((m) => m.printerName === item.printer_name)
+      return { ...item, dashMachineId: linked?.dashMachineId || null }
+    })
+    res.json({ items, total: result?.total || 0 })
+  } catch {
+    res.json({ items: [], total: 0 })
+  }
+})
+
 // GET /print-log/:machineId - Print history for a machine
 router.get('/print-log/:machineId', authenticate, async (req: AuthRequest, res) => {
   try {

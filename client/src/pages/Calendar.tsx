@@ -21,7 +21,7 @@ import { bambuddyService } from '@/services/bambuddy'
 import { useAuthStore } from '@/store/authStore'
 import { AddReservationDialog } from '@/components/calendar/AddReservationDialog'
 import type { Reservation, Machine } from '@/types'
-import type { BamBuddyPrinterStatus, BamBuddyQueueItem } from '@/types/bambuddy'
+import type { BamBuddyPrinterStatus, BamBuddyQueueItem, BamBuddyPrintLogEntry } from '@/types/bambuddy'
 
 interface PrintEvent {
   id: string
@@ -45,6 +45,7 @@ export function Calendar() {
   const [, setLoading] = useState(true)
   const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
   const [bbQueue, setBbQueue] = useState<BamBuddyQueueItem[]>([])
+  const [bbPrintLog, setBbPrintLog] = useState<BamBuddyPrintLogEntry[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -79,33 +80,42 @@ export function Calendar() {
     fetchData()
   }, [])
 
-  // Convert BamBuddy queue items into calendar-displayable print events
+  // Fetch print log for the visible month range
+  useEffect(() => {
+    const monthStart = startOfMonth(currentMonth)
+    const monthEnd = endOfMonth(currentMonth)
+    const dateFrom = format(startOfWeek(monthStart), 'yyyy-MM-dd')
+    const dateTo = format(endOfWeek(monthEnd), 'yyyy-MM-dd')
+    bambuddyService.getPrintLogAll({ limit: 200, dateFrom, dateTo })
+      .then((res) => setBbPrintLog(res.items))
+      .catch(() => {})
+  }, [currentMonth])
+
+  // Convert BamBuddy queue items + print log into calendar-displayable print events
   const printEvents = useMemo<PrintEvent[]>(() => {
-    return bbQueue
+    // Queue items (scheduled/active)
+    const queueEvents: PrintEvent[] = bbQueue
       .filter((item) => {
-        // Only show items that have timing info
         if (item.status === 'cancelled' || item.status === 'skipped') return false
         return item.started_at || item.scheduled_time
       })
       .map((item) => {
-        const duration = item.print_time_seconds || 3600 // default 1h if unknown
+        const duration = item.print_time_seconds || 3600
         let startTime: Date
         let endTime: Date
 
         if (item.started_at) {
-          // Active or completed print — use actual start time
           startTime = parseISO(item.started_at)
           endTime = item.completed_at
             ? parseISO(item.completed_at)
             : addSeconds(startTime, duration)
         } else {
-          // Scheduled print — use scheduled_time
           startTime = parseISO(item.scheduled_time!)
           endTime = addSeconds(startTime, duration)
         }
 
         return {
-          id: `bb-${item.id}`,
+          id: `bb-q-${item.id}`,
           machineName: item.printer_name || 'Unassigned',
           dashMachineId: item.dashMachineId,
           printName: item.archive_name || item.library_file_name || 'Print job',
@@ -115,7 +125,36 @@ export function Calendar() {
           createdBy: item.created_by_username,
         }
       })
-  }, [bbQueue])
+
+    // Print log entries (past prints)
+    const logEvents: PrintEvent[] = bbPrintLog
+      .filter((entry) => entry.started_at)
+      .map((entry) => {
+        const startTime = parseISO(entry.started_at!)
+        const endTime = entry.completed_at
+          ? parseISO(entry.completed_at)
+          : addSeconds(startTime, entry.duration_seconds || 3600)
+
+        return {
+          id: `bb-log-${entry.id}`,
+          machineName: entry.printer_name || 'Unknown',
+          dashMachineId: entry.dashMachineId || null,
+          printName: entry.print_name || 'Print job',
+          startTime,
+          endTime,
+          status: entry.status,
+          createdBy: entry.created_by_username,
+        }
+      })
+
+    // Deduplicate: if a queue item and log entry overlap on same printer at same time, prefer log
+    const logKeys = new Set(logEvents.map((e) => `${e.machineName}-${e.startTime.getTime()}`))
+    const dedupedQueue = queueEvents.filter(
+      (e) => !logKeys.has(`${e.machineName}-${e.startTime.getTime()}`)
+    )
+
+    return [...dedupedQueue, ...logEvents]
+  }, [bbQueue, bbPrintLog])
 
   const filteredReservations = reservations.filter(
     (r) => machineFilter === 'all' || r.machineId === machineFilter
