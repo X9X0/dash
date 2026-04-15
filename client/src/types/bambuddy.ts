@@ -64,3 +64,26 @@ export interface BamBuddySyncResult {
   updated: string[]
   offlined: string[]
 }
+
+export interface BamBuddyMaintenanceItem {
+  id: number
+  maintenance_type_name: string
+  maintenance_type_icon: string | null
+  enabled: boolean
+  interval_hours: number
+  interval_type: string
+  hours_since_maintenance: number
+  hours_until_due: number
+  is_due: boolean
+  is_warning: boolean
+  last_performed_at: string | null
+}
+
+export interface BamBuddyMaintenanceOverview {
+  printer_id: number
+  printer_name: string
+  total_print_hours: number
+  maintenance_items: BamBuddyMaintenanceItem[]
+  due_count: number
+  warning_count: number
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Printer, RefreshCw } from 'lucide-react'
+import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Printer, RefreshCw, ChevronDown } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
@@ -9,6 +9,7 @@ import { reservationService } from '@/services/reservations'
 import { maintenanceService } from '@/services/maintenance'
 import api from '@/services/api'
 import { bambuddyService } from '@/services/bambuddy'
+import { useDashboardStore } from '@/store/dashboardStore'
 import type { Reservation, MaintenanceRequest } from '@/types'
 import type { BamBuddyPrinterStatus, BamBuddyQueueItem } from '@/types/bambuddy'
 import { format, isToday, parseISO, differenceInSeconds } from 'date-fns'
@@ -50,6 +51,7 @@ export function Dashboard() {
   const [bbAvailable, setBbAvailable] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const { machineLimit, setMachineLimit } = useDashboardStore()
 
   // Update countdowns every second for claimed machines
   useEffect(() => {
@@ -316,13 +318,29 @@ export function Dashboard() {
         <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Machine Status</CardTitle>
-            <Link to="/machines" className="text-sm text-primary hover:underline">
-              View all
-            </Link>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <select
+                  value={machineLimit}
+                  onChange={(e) => setMachineLimit(Number(e.target.value))}
+                  className="appearance-none text-xs bg-muted border rounded-md pl-2 pr-6 py-1 cursor-pointer hover:bg-accent transition-colors"
+                >
+                  <option value={6}>Show 6</option>
+                  <option value={9}>Show 9</option>
+                  <option value={12}>Show 12</option>
+                  <option value={18}>Show 18</option>
+                  <option value={0}>Show all</option>
+                </select>
+                <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 pointer-events-none text-muted-foreground" />
+              </div>
+              <Link to="/machines" className="text-sm text-primary hover:underline">
+                View all
+              </Link>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {sortedMachines.slice(0, 9).map((machine) => {
+              {(machineLimit === 0 ? sortedMachines : sortedMachines.slice(0, machineLimit)).map((machine) => {
                 const status = pingStatus[machine.id]
                 const isReachable = status?.reachable
                 const hasNetworkConfig = status !== undefined

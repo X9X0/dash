@@ -70,7 +70,7 @@ import { userService } from '@/services/users'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
 import { bambuddyService } from '@/services/bambuddy'
-import type { BamBuddyPrinterStatus, BamBuddyPrintLogEntry, BamBuddyConfig } from '@/types/bambuddy'
+import type { BamBuddyPrinterStatus, BamBuddyPrintLogEntry, BamBuddyConfig, BamBuddyMaintenanceOverview } from '@/types/bambuddy'
 import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
@@ -205,6 +205,7 @@ export function MachineDetail() {
   const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
   const [bbControlling, setBbControlling] = useState(false)
   const [bbCameraError, setBbCameraError] = useState(false)
+  const [bbMaintenance, setBbMaintenance] = useState<BamBuddyMaintenanceOverview | null>(null)
 
   useEffect(() => {
     if (id) {
@@ -238,14 +239,16 @@ export function MachineDetail() {
   const fetchBamBuddyData = async () => {
     if (!id) return
     try {
-      const [status, config, logResponse] = await Promise.all([
+      const [status, config, logResponse, maintenance] = await Promise.all([
         bambuddyService.getStatus(id),
         bambuddyService.getConfig(),
         bambuddyService.getPrintLog(id, 10),
+        bambuddyService.getMaintenance(id),
       ])
       setBbStatus(status)
       setBbConfig(config)
       setBbPrintLog(logResponse.items)
+      setBbMaintenance(maintenance)
     } catch {
       // BamBuddy unavailable or machine not linked
     }
@@ -1051,6 +1054,73 @@ export function MachineDetail() {
                     </Button>
                   )}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* BamBuddy Printer Maintenance */}
+        {bbMaintenance && bbMaintenance.maintenance_items.length > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Wrench className="h-4 w-4" />
+                Printer Maintenance
+              </CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {Math.round(bbMaintenance.total_print_hours)} print hours
+              </span>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 space-y-2">
+              {bbMaintenance.maintenance_items.filter((item) => item.enabled).map((item) => {
+                const pct = Math.min(100, (item.hours_since_maintenance / item.interval_hours) * 100)
+                return (
+                  <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg border">
+                    <div className="shrink-0">
+                      {item.is_due ? (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      ) : item.is_warning ? (
+                        <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                      ) : (
+                        <Wrench className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium truncate">{item.maintenance_type_name}</p>
+                        <Badge
+                          variant={item.is_due ? 'destructive' : item.is_warning ? 'warning' : 'secondary'}
+                          className="text-[10px] ml-2 shrink-0"
+                        >
+                          {item.is_due ? 'Due' : item.is_warning ? 'Soon' : `${Math.round(item.hours_until_due)}h left`}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              item.is_due ? 'bg-red-500' : item.is_warning ? 'bg-yellow-500' : 'bg-green-500'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {Math.round(item.hours_since_maintenance)}/{item.interval_hours}h
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {(bbMaintenance.due_count > 0 || bbMaintenance.warning_count > 0) && bbConfig?.publicUrl && (
+                <a
+                  href={bbConfig.publicUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-xs text-center text-primary hover:underline pt-1"
+                >
+                  Perform maintenance in BamBuddy
+                </a>
               )}
             </CardContent>
           </Card>

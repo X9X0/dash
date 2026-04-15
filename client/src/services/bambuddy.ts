@@ -6,6 +6,7 @@ import type {
   BamBuddyPrintLogResponse,
   BamBuddyConfig,
   BamBuddySyncResult,
+  BamBuddyMaintenanceOverview,
 } from '@/types/bambuddy'
 
 export const bambuddyService = {
@@ -68,6 +69,15 @@ export const bambuddyService = {
       return data
     } catch {
       return { items: [], total: 0 }
+    }
+  },
+
+  async getMaintenance(machineId: string): Promise<BamBuddyMaintenanceOverview | null> {
+    try {
+      const { data } = await api.get<BamBuddyMaintenanceOverview | null>(`/bambuddy/maintenance/${machineId}`)
+      return data
+    } catch {
+      return null
     }
   },
 

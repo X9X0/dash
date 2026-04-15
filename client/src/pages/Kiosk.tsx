@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer } from 'lucide-react'
+import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer, Rows3, Columns3 } from 'lucide-react'
 import { format, parseISO, differenceInSeconds } from 'date-fns'
 
 function formatCountdown(expiresAt: string): string {
@@ -20,6 +20,7 @@ function formatCountdown(expiresAt: string): string {
 import api from '@/services/api'
 import { bambuddyService } from '@/services/bambuddy'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
+import { useKioskStore } from '@/store/kioskStore'
 import { useAuthStore } from '@/store/authStore'
 import type { Machine } from '@/types'
 import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
@@ -48,6 +49,7 @@ export function Kiosk() {
   const [countdowns, setCountdowns] = useState<Record<string, string>>({})
   const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
   const { theme, setTheme } = useThemeStore()
+  const { layout, setLayout } = useKioskStore()
 
   useEffect(() => {
     applyTheme(theme)
@@ -229,6 +231,17 @@ export function Kiosk() {
             <p className="font-mono">{format(lastUpdate, 'h:mm:ss a')}</p>
           </div>
           <button
+            onClick={() => setLayout(layout === 'rows' ? 'columns' : 'rows')}
+            className="p-2 rounded-lg hover:bg-accent transition-colors"
+            title={layout === 'rows' ? 'Switch to column layout' : 'Switch to row layout'}
+          >
+            {layout === 'rows' ? (
+              <Columns3 className="h-5 w-5" />
+            ) : (
+              <Rows3 className="h-5 w-5" />
+            )}
+          </button>
+          <button
             onClick={toggleTheme}
             className="p-2 rounded-lg hover:bg-accent transition-colors"
           >
@@ -283,7 +296,128 @@ export function Kiosk() {
       </div>
 
       {/* Machine Grid by Type */}
-      {sortedTypeNames.map((typeName) => (
+      {layout === 'columns' ? (
+        <div className="grid gap-6" style={{ gridTemplateColumns: `repeat(${sortedTypeNames.length}, minmax(200px, 1fr))` }}>
+          {sortedTypeNames.map((typeName) => (
+            <div key={typeName}>
+              <h2 className="text-lg font-semibold mb-3 text-muted-foreground text-center">{typeName}</h2>
+              <div className="flex flex-col gap-3">
+                {machinesByType[typeName].map((machine) => {
+                  const status = pingStatus[machine.id]
+                  const isReachable = status?.reachable
+                  const hasNetworkConfig = status !== undefined
+                  const networkInfo = getNetworkInfo(machine)
+                  const conditionText = getConditionText(machine)
+                  return (
+                    <div
+                      key={machine.id}
+                      className="rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
+                    >
+                      <div className={`h-3 ${getIndicatorColor(machine)}`} />
+                      <div className="p-3 flex-1">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className={`p-1.5 rounded-lg bg-muted ${getStatusTextColor(machine)}`}>
+                            {getMachineIcon(machine.type?.category)}
+                          </div>
+                        </div>
+                        <h3 className="font-semibold truncate text-sm" title={machine.name}>
+                          {machine.name}
+                        </h3>
+                        <p className="text-xs text-muted-foreground truncate" title={machine.location}>
+                          {machine.location}
+                        </p>
+                        <p className={`text-xs font-medium mt-1 ${getStatusTextColor(machine)}`}>
+                          {getStatusText(machine)}
+                          {conditionText && <span className="ml-1">({conditionText})</span>}
+                        </p>
+                        {machine.statusNote && (
+                          <p className="text-xs italic text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5 mt-1 line-clamp-2">
+                            {machine.statusNote}
+                          </p>
+                        )}
+                        {machine.claimedBy && (
+                          <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 mt-1">
+                            <Timer className="h-3 w-3" />
+                            <span>
+                              {machine.claimedBy.name}
+                              {countdowns[machine.id] && (
+                                <span className="text-muted-foreground ml-1 font-mono">
+                                  ({countdowns[machine.id]})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {bbStatuses[machine.id] && !bbStatuses[machine.id].error && (
+                          <div className="mt-1">
+                            {bbStatuses[machine.id].state === 'RUNNING' && (
+                              <div className="space-y-1">
+                                <div className="flex justify-between text-xs">
+                                  <span className="truncate text-muted-foreground">{bbStatuses[machine.id].current_print || 'Printing'}</span>
+                                  <span className="font-mono font-medium text-blue-600 dark:text-blue-400 ml-1 shrink-0">{bbStatuses[machine.id].progress}%</span>
+                                </div>
+                                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+                                    style={{ width: `${bbStatuses[machine.id].progress}%` }}
+                                  />
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">
+                                  ~{Math.round(bbStatuses[machine.id].remaining_time)} min left
+                                </p>
+                              </div>
+                            )}
+                            {bbStatuses[machine.id].state === 'IDLE' && (
+                              <p className="text-xs text-green-600 dark:text-green-400">Printer idle</p>
+                            )}
+                            {bbStatuses[machine.id].state === 'PAUSE' && (
+                              <p className="text-xs text-yellow-600 dark:text-yellow-400">Print paused</p>
+                            )}
+                            {bbStatuses[machine.id].state === 'FINISH' && (
+                              <p className="text-xs text-green-600 dark:text-green-400">Print finished</p>
+                            )}
+                            {bbStatuses[machine.id].state === 'FAILED' && (
+                              <p className="text-xs text-red-600 dark:text-red-400">Print failed</p>
+                            )}
+                          </div>
+                        )}
+                        {networkInfo && (networkInfo.ip || networkInfo.hostname) && (
+                          <div className="mt-1 text-xs font-mono">
+                            {networkInfo.hostname && (
+                              <p className={`truncate ${status?.hostnameReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={networkInfo.hostname}>
+                                {networkInfo.hostname}
+                              </p>
+                            )}
+                            {networkInfo.ip && (
+                              <p className={`truncate ${isReachable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} title={networkInfo.ip}>
+                                {networkInfo.ip}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {hasNetworkConfig && (
+                        <div className={`flex items-center justify-center gap-2 py-1 text-xs font-semibold ${
+                          isReachable
+                            ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                            : 'bg-red-500/20 text-red-600 dark:text-red-400'
+                        }`}>
+                          {isReachable ? (
+                            <><Wifi className="h-3 w-3" /><span>Online</span></>
+                          ) : (
+                            <><WifiOff className="h-3 w-3" /><span>Offline</span></>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+      sortedTypeNames.map((typeName) => (
         <div key={typeName} className="mb-8">
           <h2 className="text-xl font-semibold mb-4 text-muted-foreground">{typeName}</h2>
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -412,7 +546,8 @@ export function Kiosk() {
             })}
           </div>
         </div>
-      ))}
+      ))
+      )}
 
       {machines.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">

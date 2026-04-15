@@ -418,6 +418,21 @@ router.get('/print-log/:machineId', authenticate, async (req: AuthRequest, res) 
   }
 })
 
+// GET /maintenance/:machineId - Printer maintenance status
+router.get('/maintenance/:machineId', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const printer = await findPrinter(req.params.machineId as string)
+    if (!printer) {
+      return res.json(null)
+    }
+
+    const result = await bbFetch(`/maintenance/printers/${printer.bambuddyPrinterId}`)
+    res.json(result)
+  } catch {
+    res.json(null)
+  }
+})
+
 // GET /camera/:machineId/snapshot - Proxy camera snapshot (JPEG)
 router.get('/camera/:machineId/snapshot', authenticate, async (req: AuthRequest, res) => {
   try {
