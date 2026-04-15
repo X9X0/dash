@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { Readable } from 'stream'
-import { authenticate, requireOperator, AuthRequest } from '../middleware/auth.js'
+import { authenticate, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -52,29 +52,32 @@ async function bbFetch(path: string, options?: RequestInit): Promise<any> {
 }
 
 // --- Helper: raw fetch (for streaming responses like camera) ---
-async function bbFetchRaw(path: string, options?: RequestInit): Promise<Response> {
+async function bbFetchRaw(path: string, options?: RequestInit & { streaming?: boolean }): Promise<Response> {
   const baseUrl = process.env.BAMBUDDY_URL || 'http://localhost:8000'
   const apiKey = process.env.BAMBUDDY_API_KEY
+  const { streaming, ...fetchOptions } = options || {}
 
+  // For streaming responses (MJPEG), only use a timeout for the initial connection.
+  // For non-streaming (snapshot, thumbnail), use a 30s timeout for the whole request.
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30000) // longer timeout for streams
+  const timeout = setTimeout(() => controller.abort(), streaming ? 10000 : 30000)
 
   try {
     const resp = await fetch(`${baseUrl}${path}`, {
-      ...options,
-      signal: controller.signal,
+      ...fetchOptions,
+      signal: streaming ? undefined : controller.signal,
       headers: {
         'X-API-Key': apiKey || '',
-        ...options?.headers,
+        ...fetchOptions?.headers,
       },
     })
 
+    clearTimeout(timeout)
+
     if (!resp.ok) {
-      clearTimeout(timeout)
       throw new Error(`BamBuddy API error: ${resp.status}`)
     }
 
-    // Don't clear timeout for streams — let the AbortController handle long-running connections
     return resp
   } catch (err) {
     clearTimeout(timeout)
@@ -125,9 +128,157 @@ async function findPrinter(dashMachineId: string): Promise<PrinterMapping | null
   return mapping.find((m) => m.dashMachineId === dashMachineId) || null
 }
 
+// --- Sync: import printers from BamBuddy into Dash ---
+const FDM_TYPE_ID = 'fdm-printer'
+const DEFAULT_LOCATION = '3D Print Lab'
+const SYNC_INTERVAL = 5 * 60_000 // 5 minutes
+
+interface SyncResult {
+  created: string[]
+  updated: string[]
+  offlined: string[]
+}
+
+async function syncPrinters(): Promise<SyncResult> {
+  if (!process.env.BAMBUDDY_API_KEY) {
+    throw new Error('BAMBUDDY_API_KEY not configured')
+  }
+
+  const bbPrinters: any[] = await bbFetch('/printers/')
+  const allIPs = await prisma.machineIP.findMany({ include: { machine: true } })
+
+  // Build lookup: IP → MachineIP record (with machine)
+  const ipToMachineIP = new Map<string, typeof allIPs[number]>()
+  for (const ip of allIPs) {
+    ipToMachineIP.set(ip.ipAddress, ip)
+  }
+
+  const result: SyncResult = { created: [], updated: [], offlined: [] }
+  const seenMachineIds = new Set<string>()
+
+  // Ensure FDM printer type exists
+  let fdmType = await prisma.machineType.findUnique({ where: { id: FDM_TYPE_ID } })
+  if (!fdmType) {
+    fdmType = await prisma.machineType.create({
+      data: {
+        id: FDM_TYPE_ID,
+        name: 'FDM Printer',
+        category: 'printer',
+        icon: 'printer',
+      },
+    })
+  }
+
+  for (const bbPrinter of bbPrinters) {
+    const existingIP = ipToMachineIP.get(bbPrinter.ip_address)
+
+    if (existingIP) {
+      // Printer already linked — update name if changed
+      seenMachineIds.add(existingIP.machineId)
+      const machine = existingIP.machine
+      if (machine.name !== bbPrinter.name) {
+        await prisma.machine.update({
+          where: { id: machine.id },
+          data: { name: bbPrinter.name },
+        })
+        result.updated.push(bbPrinter.name)
+      }
+      // Ensure it's not marked offline if BamBuddy still knows about it
+      if (machine.status === 'offline') {
+        await prisma.machine.update({
+          where: { id: machine.id },
+          data: { status: 'available' },
+        })
+        if (!result.updated.includes(bbPrinter.name)) {
+          result.updated.push(bbPrinter.name)
+        }
+      }
+    } else {
+      // New printer — create machine + IP record
+      const machine = await prisma.machine.create({
+        data: {
+          name: bbPrinter.name,
+          typeId: FDM_TYPE_ID,
+          model: bbPrinter.model || 'Bambu Lab',
+          location: DEFAULT_LOCATION,
+          status: 'available',
+          condition: 'functional',
+          icon: 'printer',
+          autoHourTracking: false,
+          ips: {
+            create: {
+              label: 'printer',
+              ipAddress: bbPrinter.ip_address,
+            },
+          },
+        },
+      })
+      seenMachineIds.add(machine.id)
+      result.created.push(bbPrinter.name)
+    }
+  }
+
+  // Mark machines that were synced from BamBuddy but no longer exist there as offline.
+  // Only affect machines that are: (a) FDM printers, (b) have an IP that was previously
+  // matched to a BamBuddy printer, and (c) are not in the current BamBuddy printer list.
+  const bbIPs = new Set(bbPrinters.map((p: any) => p.ip_address))
+  const fdmMachines = await prisma.machine.findMany({
+    where: { typeId: FDM_TYPE_ID, status: { not: 'offline' } },
+    include: { ips: true },
+  })
+  for (const machine of fdmMachines) {
+    if (seenMachineIds.has(machine.id)) continue
+    // Check if any of this machine's IPs were previously BamBuddy-linked
+    const hasBBIP = machine.ips.some((ip: { label: string }) => ip.label === 'printer')
+    if (hasBBIP && !machine.ips.some((ip: { ipAddress: string }) => bbIPs.has(ip.ipAddress))) {
+      await prisma.machine.update({
+        where: { id: machine.id },
+        data: { status: 'offline' },
+      })
+      result.offlined.push(machine.name)
+    }
+  }
+
+  // Invalidate mapping cache so it picks up new machines
+  mappingCacheTimestamp = 0
+
+  return result
+}
+
+// Background sync timer
+let syncInterval: ReturnType<typeof setInterval> | null = null
+
+export function startBamBuddySync() {
+  if (!process.env.BAMBUDDY_API_KEY) return
+
+  // Run initial sync after a short delay to let the server finish starting
+  setTimeout(() => {
+    syncPrinters().catch((err) =>
+      console.error('BamBuddy initial sync failed:', err.message)
+    )
+  }, 5000)
+
+  syncInterval = setInterval(() => {
+    syncPrinters().catch((err) =>
+      console.error('BamBuddy background sync failed:', err.message)
+    )
+  }, SYNC_INTERVAL)
+}
+
 // =============================================================================
 // Routes
 // =============================================================================
+
+// POST /sync - Manually trigger printer sync (admin only)
+router.post('/sync', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const result = await syncPrinters()
+    res.json(result)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Sync failed'
+    res.status(500).json({ error: msg })
+  }
+})
 
 // GET /config - Check if BamBuddy is available and return public URL
 router.get('/config', authenticate, async (req: AuthRequest, res) => {
@@ -297,7 +448,7 @@ router.get('/camera/:machineId/stream', authenticate, async (req: AuthRequest, r
     }
 
     const fps = parseInt(req.query.fps as string) || 10
-    const response = await bbFetchRaw(`/${printer.bambuddyPrinterId}/camera/stream?fps=${fps}`)
+    const response = await bbFetchRaw(`/${printer.bambuddyPrinterId}/camera/stream?fps=${fps}`, { streaming: true })
 
     // Forward the content type header (multipart/x-mixed-replace)
     const contentType = response.headers.get('content-type')

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Printer } from 'lucide-react'
+import { Cpu, Calendar, Wrench, AlertTriangle, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Printer, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
@@ -47,6 +47,9 @@ export function Dashboard() {
   const [countdowns, setCountdowns] = useState<Record<string, string>>({})
   const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
   const [bbQueue, setBbQueue] = useState<BamBuddyQueueItem[]>([])
+  const [bbAvailable, setBbAvailable] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
 
   // Update countdowns every second for claimed machines
   useEffect(() => {
@@ -135,9 +138,10 @@ export function Dashboard() {
 
     const fetchBamBuddy = async () => {
       try {
-        const [statuses, queue] = await Promise.all([
+        const [statuses, queue, config] = await Promise.all([
           bambuddyService.getAllStatuses(),
           bambuddyService.getQueue(),
+          bambuddyService.getConfig(),
         ])
         const map: Record<string, BamBuddyPrinterStatus> = {}
         statuses.forEach((s) => {
@@ -145,6 +149,7 @@ export function Dashboard() {
         })
         setBbStatuses(map)
         setBbQueue(queue.filter((q) => q.status === 'pending' || q.status === 'printing'))
+        setBbAvailable(config.available)
       } catch {
         // BamBuddy unavailable — gracefully ignore
       }
@@ -169,6 +174,27 @@ export function Dashboard() {
 
     return () => clearInterval(refreshInterval)
   }, [setMachines, setLoading])
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setSyncMessage(null)
+    try {
+      const result = await bambuddyService.syncPrinters()
+      const parts: string[] = []
+      if (result.created.length) parts.push(`Added: ${result.created.join(', ')}`)
+      if (result.updated.length) parts.push(`Updated: ${result.updated.join(', ')}`)
+      if (result.offlined.length) parts.push(`Offlined: ${result.offlined.join(', ')}`)
+      setSyncMessage(parts.length > 0 ? parts.join(' | ') : 'All printers in sync')
+      // Refresh machine list to reflect changes
+      const { data } = await api.get('/machines')
+      setMachines(data)
+    } catch {
+      setSyncMessage('Sync failed')
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncMessage(null), 5000)
+    }
+  }
 
   // Count machines that are available AND reachable
   const readyCount = machines.filter((m) =>
@@ -243,9 +269,27 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-muted-foreground">Overview of your machines and activities</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your machines and activities</p>
+        </div>
+        {isAdmin && bbAvailable && (
+          <div className="flex items-center gap-2">
+            {syncMessage && (
+              <span className="text-xs text-muted-foreground">{syncMessage}</span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+            >
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+              Sync Printers
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Stats Grid - clickable links */}

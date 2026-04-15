@@ -19,7 +19,7 @@ import { maintenanceRouter } from './routes/maintenance.js'
 import { serviceRecordsRouter } from './routes/serviceRecords.js'
 import { activityLogsRouter } from './routes/activityLogs.js'
 import { notificationsRouter } from './routes/notifications.js'
-import { bambuddyRouter } from './routes/bambuddy.js'
+import { bambuddyRouter, startBamBuddySync } from './routes/bambuddy.js'
 import { setupSocket } from './socket/index.js'
 import { startAutoHourTracking } from './jobs/autoHourTracking.js'
 import { startClaimExpiry } from './jobs/claimExpiry.js'
@@ -92,6 +92,7 @@ httpServer.listen(PORT, () => {
   // Start background jobs
   startAutoHourTracking()
   startClaimExpiry(io)
+  startBamBuddySync()
 })
 
 export { io }

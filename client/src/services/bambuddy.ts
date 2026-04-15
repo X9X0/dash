@@ -1,9 +1,11 @@
 import api from './api'
+import { useAuthStore } from '@/store/authStore'
 import type {
   BamBuddyPrinterStatus,
   BamBuddyQueueItem,
   BamBuddyPrintLogResponse,
   BamBuddyConfig,
+  BamBuddySyncResult,
 } from '@/types/bambuddy'
 
 export const bambuddyService = {
@@ -69,15 +71,23 @@ export const bambuddyService = {
     }
   },
 
+  async syncPrinters(): Promise<BamBuddySyncResult> {
+    const { data } = await api.post<BamBuddySyncResult>('/bambuddy/sync')
+    return data
+  },
+
   getCameraStreamUrl(machineId: string): string {
-    return `/api/bambuddy/camera/${machineId}/stream`
+    const token = useAuthStore.getState().token
+    return `/api/bambuddy/camera/${machineId}/stream${token ? `?token=${token}` : ''}`
   },
 
   getCameraSnapshotUrl(machineId: string): string {
-    return `/api/bambuddy/camera/${machineId}/snapshot`
+    const token = useAuthStore.getState().token
+    return `/api/bambuddy/camera/${machineId}/snapshot${token ? `?token=${token}` : ''}`
   },
 
   getPrintLogThumbnailUrl(machineId: string, entryId: number): string {
-    return `/api/bambuddy/print-log/${machineId}/thumbnail/${entryId}`
+    const token = useAuthStore.getState().token
+    return `/api/bambuddy/print-log/${machineId}/thumbnail/${entryId}${token ? `?token=${token}` : ''}`
   },
 }

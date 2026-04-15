@@ -58,3 +58,9 @@ export interface BamBuddyConfig {
   available: boolean
   publicUrl: string
 }
+
+export interface BamBuddySyncResult {
+  created: string[]
+  updated: string[]
+  offlined: string[]
+}

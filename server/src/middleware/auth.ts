@@ -20,11 +20,13 @@ export const authenticate = async (
 ) => {
   try {
     const authHeader = req.headers.authorization
-    if (!authHeader?.startsWith('Bearer ')) {
+    const queryToken = req.query.token as string | undefined
+
+    if (!authHeader?.startsWith('Bearer ') && !queryToken) {
       return res.status(401).json({ error: 'No token provided' })
     }
 
-    const token = authHeader.substring(7)
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : queryToken!
     const secret = process.env.JWT_SECRET || 'fallback-secret'
 
     const decoded = jwt.verify(token, secret) as { userId: string }
