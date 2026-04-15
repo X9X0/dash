@@ -95,11 +95,11 @@ export function Layout({ children }: LayoutProps) {
         {/* Sidebar */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-30 w-64 transform border-r bg-background transition-transform duration-200 ease-in-out lg:static lg:translate-x-0',
+            'fixed inset-y-0 left-0 z-30 w-64 transform border-r bg-background transition-transform duration-200 ease-in-out lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 overflow-hidden',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           )}
         >
-          <div className="flex flex-col h-screen">
+          <div className="flex flex-col h-full overflow-hidden">
             <div className="flex h-12 items-center border-b px-4 shrink-0">
               <Link to="/dashboard" className="flex items-center gap-2 font-semibold">
                 <Cpu className="h-5 w-5 text-primary" />
