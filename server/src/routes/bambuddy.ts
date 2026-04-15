@@ -19,8 +19,10 @@ let mappingCacheTimestamp = 0
 const MAPPING_CACHE_TTL = 60_000 // 60 seconds
 
 // --- Helper: fetch from BamBuddy API ---
+const BB_API_PREFIX = '/api/v1'
+
 async function bbFetch(path: string, options?: RequestInit): Promise<any> {
-  const baseUrl = process.env.BAMBUDDY_URL || 'http://localhost:8000'
+  const baseUrl = (process.env.BAMBUDDY_URL || 'http://localhost:8000') + BB_API_PREFIX
   const apiKey = process.env.BAMBUDDY_API_KEY
 
   if (!apiKey) {
@@ -53,7 +55,7 @@ async function bbFetch(path: string, options?: RequestInit): Promise<any> {
 
 // --- Helper: raw fetch (for streaming responses like camera) ---
 async function bbFetchRaw(path: string, options?: RequestInit & { streaming?: boolean }): Promise<Response> {
-  const baseUrl = process.env.BAMBUDDY_URL || 'http://localhost:8000'
+  const baseUrl = (process.env.BAMBUDDY_URL || 'http://localhost:8000') + BB_API_PREFIX
   const apiKey = process.env.BAMBUDDY_API_KEY
   const { streaming, ...fetchOptions } = options || {}
 
@@ -424,7 +426,7 @@ router.get('/camera/:machineId/snapshot', authenticate, async (req: AuthRequest,
       return res.status(404).json({ error: 'Printer not linked' })
     }
 
-    const response = await bbFetchRaw(`/${printer.bambuddyPrinterId}/camera/snapshot`)
+    const response = await bbFetchRaw(`/printers/${printer.bambuddyPrinterId}/camera/snapshot`)
     res.set('Content-Type', 'image/jpeg')
     res.set('Cache-Control', 'no-cache')
 
@@ -448,7 +450,7 @@ router.get('/camera/:machineId/stream', authenticate, async (req: AuthRequest, r
     }
 
     const fps = parseInt(req.query.fps as string) || 10
-    const response = await bbFetchRaw(`/${printer.bambuddyPrinterId}/camera/stream?fps=${fps}`, { streaming: true })
+    const response = await bbFetchRaw(`/printers/${printer.bambuddyPrinterId}/camera/stream?fps=${fps}`, { streaming: true })
 
     // Forward the content type header (multipart/x-mixed-replace)
     const contentType = response.headers.get('content-type')
