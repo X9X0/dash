@@ -418,6 +418,25 @@ router.get('/print-log/:machineId', authenticate, async (req: AuthRequest, res) 
   }
 })
 
+// GET /maintenance/all - All printer maintenance statuses
+router.get('/maintenance/all', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const mapping = await refreshMapping()
+    const results = await Promise.allSettled(
+      mapping.map(async (m) => {
+        const data = await bbFetch(`/maintenance/printers/${m.bambuddyPrinterId}`)
+        return { dashMachineId: m.dashMachineId, ...data }
+      })
+    )
+    const maintenance = results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map((r) => r.value)
+    res.json(maintenance)
+  } catch {
+    res.json([])
+  }
+})
+
 // GET /maintenance/:machineId - Printer maintenance status
 router.get('/maintenance/:machineId', authenticate, async (req: AuthRequest, res) => {
   try {

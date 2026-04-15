@@ -72,6 +72,15 @@ export const bambuddyService = {
     }
   },
 
+  async getAllMaintenance(): Promise<BamBuddyMaintenanceOverview[]> {
+    try {
+      const { data } = await api.get<BamBuddyMaintenanceOverview[]>('/bambuddy/maintenance/all')
+      return data
+    } catch {
+      return []
+    }
+  },
+
   async getMaintenance(machineId: string): Promise<BamBuddyMaintenanceOverview | null> {
     try {
       const { data } = await api.get<BamBuddyMaintenanceOverview | null>(`/bambuddy/maintenance/${machineId}`)

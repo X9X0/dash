@@ -86,4 +86,5 @@ export interface BamBuddyMaintenanceOverview {
   maintenance_items: BamBuddyMaintenanceItem[]
   due_count: number
   warning_count: number
+  dashMachineId?: string
 }

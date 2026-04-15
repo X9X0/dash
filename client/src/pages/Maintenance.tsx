@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Filter, AlertTriangle } from 'lucide-react'
+import { Plus, Filter, AlertTriangle, Wrench, Printer } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
-import { Button, Card, CardContent, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
+import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { maintenanceService } from '@/services/maintenance'
 import { machineService } from '@/services/machines'
+import { bambuddyService } from '@/services/bambuddy'
 import { useAuthStore } from '@/store/authStore'
 import { AddMaintenanceDialog } from '@/components/maintenance/AddMaintenanceDialog'
 import type { MaintenanceRequest, Machine, MaintenanceStatus, MaintenancePriority } from '@/types'
+import type { BamBuddyMaintenanceOverview, BamBuddyConfig } from '@/types/bambuddy'
 
 const priorityColors: Record<MaintenancePriority, string> = {
   low: 'text-blue-500',
@@ -35,8 +37,11 @@ export function Maintenance() {
   const [machines, setMachines] = useState<Machine[]>([])
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
+  const [machineTypeFilter, setMachineTypeFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [, setLoading] = useState(true)
+  const [bbMaintenanceAll, setBbMaintenanceAll] = useState<BamBuddyMaintenanceOverview[]>([])
+  const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -53,14 +58,35 @@ export function Maintenance() {
       } finally {
         setLoading(false)
       }
+
+      // Fetch BamBuddy data in background
+      try {
+        const [bbMaint, config] = await Promise.all([
+          bambuddyService.getAllMaintenance(),
+          bambuddyService.getConfig(),
+        ])
+        setBbMaintenanceAll(bbMaint)
+        setBbConfig(config)
+      } catch {}
     }
     fetchData()
   }, [])
 
+  // Build unique machine type names from actual machines
+  const machineTypeNames = [...new Set(machines.map((m) => m.type?.name).filter(Boolean))] as string[]
+
   const filteredRequests = requests.filter((r) => {
     const matchesStatus = statusFilter === 'all' || r.status === statusFilter
     const matchesPriority = priorityFilter === 'all' || r.priority === priorityFilter
-    return matchesStatus && matchesPriority
+    const matchesType = machineTypeFilter === 'all' || r.machine?.type?.name === machineTypeFilter
+    return matchesStatus && matchesPriority && matchesType
+  })
+
+  // Filter BamBuddy maintenance by type filter
+  const filteredBbMaintenance = bbMaintenanceAll.filter((bm) => {
+    if (machineTypeFilter === 'all') return true
+    const machine = machines.find((m) => m.id === bm.dashMachineId)
+    return machine?.type?.name === machineTypeFilter
   })
 
   const handleRequestCreated = (request: MaintenanceRequest) => {
@@ -119,6 +145,17 @@ export function Maintenance() {
                 <SelectItem value="medium">Medium</SelectItem>
                 <SelectItem value="high">High</SelectItem>
                 <SelectItem value="critical">Critical</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={machineTypeFilter} onValueChange={setMachineTypeFilter}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Filter by machine type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Machine Types</SelectItem>
+                {machineTypeNames.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -198,6 +235,99 @@ export function Maintenance() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {/* BamBuddy Printer Maintenance */}
+      {filteredBbMaintenance.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Printer className="h-5 w-5" />
+            Printer Maintenance Schedules
+          </h2>
+          {filteredBbMaintenance.map((bm) => {
+            const machine = machines.find((m) => m.id === bm.dashMachineId)
+            const enabledItems = bm.maintenance_items.filter((item) => item.enabled)
+            if (enabledItems.length === 0) return null
+            return (
+              <Card key={bm.printer_id}>
+                <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    {machine ? (
+                      <Link to={`/machines/${machine.id}`} className="hover:underline">
+                        {machine.name}
+                      </Link>
+                    ) : (
+                      bm.printer_name
+                    )}
+                    {bm.due_count > 0 && (
+                      <Badge variant="destructive" className="text-[10px]">{bm.due_count} due</Badge>
+                    )}
+                    {bm.warning_count > 0 && (
+                      <Badge variant="warning" className="text-[10px]">{bm.warning_count} soon</Badge>
+                    )}
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">
+                    {Math.round(bm.total_print_hours)} print hours
+                  </span>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {enabledItems.map((item) => {
+                      const pct = Math.min(100, (item.hours_since_maintenance / item.interval_hours) * 100)
+                      return (
+                        <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg border">
+                          <div className="shrink-0">
+                            {item.is_due ? (
+                              <AlertTriangle className="h-4 w-4 text-red-500" />
+                            ) : item.is_warning ? (
+                              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                            ) : (
+                              <Wrench className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-medium truncate">{item.maintenance_type_name}</p>
+                              <Badge
+                                variant={item.is_due ? 'destructive' : item.is_warning ? 'warning' : 'secondary'}
+                                className="text-[10px] ml-2 shrink-0"
+                              >
+                                {item.is_due ? 'Due' : item.is_warning ? 'Soon' : `${Math.round(item.hours_until_due)}h left`}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    item.is_due ? 'bg-red-500' : item.is_warning ? 'bg-yellow-500' : 'bg-green-500'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-muted-foreground shrink-0">
+                                {Math.round(item.hours_since_maintenance)}/{item.interval_hours}h
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {(bm.due_count > 0 || bm.warning_count > 0) && bbConfig?.publicUrl && (
+                    <a
+                      href={bbConfig.publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-xs text-center text-primary hover:underline mt-3"
+                    >
+                      Perform maintenance in BamBuddy
+                    </a>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
 
       <AddMaintenanceDialog
