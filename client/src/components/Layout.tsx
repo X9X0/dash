@@ -99,22 +99,22 @@ export function Layout({ children }: LayoutProps) {
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           )}
         >
-          <div className="flex flex-col h-full">
-            <div className="flex h-14 items-center border-b px-6 shrink-0">
+          <div className="flex flex-col h-screen">
+            <div className="flex h-12 items-center border-b px-4 shrink-0">
               <Link to="/dashboard" className="flex items-center gap-2 font-semibold">
-                <Cpu className="h-6 w-6 text-primary" />
+                <Cpu className="h-5 w-5 text-primary" />
                 <span>Dash</span>
               </Link>
             </div>
 
-            <nav className="flex-1 flex flex-col gap-1 p-4 overflow-y-auto">
+            <nav className="flex-1 flex flex-col gap-0.5 px-3 py-2 min-h-0">
               {filteredNavItems.map((item) => (
                 <Link
                   key={item.href}
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition-colors shrink-0',
                     location.pathname === item.href
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
@@ -129,7 +129,7 @@ export function Layout({ children }: LayoutProps) {
                   href={bbConfig.publicUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors mt-2 border-t pt-3"
+                  className="flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors mt-1 border-t pt-2 shrink-0"
                 >
                   <Printer className="h-5 w-5" />
                   BamBuddy
@@ -138,22 +138,23 @@ export function Layout({ children }: LayoutProps) {
               )}
             </nav>
 
-            <div className="shrink-0 border-t p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
+            <div className="shrink-0 border-t px-3 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <span className="text-sm font-medium text-primary">
                     {user?.name?.charAt(0).toUpperCase()}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{user?.name}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+                  <p className="text-sm font-medium truncate leading-tight">{user?.name}</p>
+                  <p className="text-[11px] text-muted-foreground capitalize leading-tight">{user?.role}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-8 w-8"
                   onClick={toggleTheme}
                   title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                 >
@@ -166,7 +167,7 @@ export function Layout({ children }: LayoutProps) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="relative"
+                  className="relative h-8 w-8"
                   onClick={() => navigate('/notifications')}
                   title="Notifications"
                 >
@@ -180,6 +181,7 @@ export function Layout({ children }: LayoutProps) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-8 w-8"
                   onClick={() => navigate('/settings')}
                   title="Settings"
                 >
@@ -188,6 +190,7 @@ export function Layout({ children }: LayoutProps) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-8 w-8"
                   onClick={() => navigate('/')}
                   title="Kiosk Mode"
                 >
@@ -196,6 +199,7 @@ export function Layout({ children }: LayoutProps) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-8 w-8"
                   onClick={handleLogout}
                   title="Logout"
                 >
