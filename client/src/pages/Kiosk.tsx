@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer, Rows3, Columns3 } from 'lucide-react'
+import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer, Rows3, Columns3, Server, Monitor, Cog, CircuitBoard, Network, Tv, Car } from 'lucide-react'
 import { format, parseISO, differenceInSeconds } from 'date-fns'
 
 function formatCountdown(expiresAt: string): string {
@@ -36,6 +36,13 @@ interface PingStatus {
 function getMachineIcon(category?: string) {
   if (category === 'printer') return <Printer className="h-8 w-8" />
   if (category === 'robot') return <Bot className="h-8 w-8" />
+  if (category === 'server') return <Server className="h-8 w-8" />
+  if (category === 'computer') return <Monitor className="h-8 w-8" />
+  if (category === 'cnc') return <Cog className="h-8 w-8" />
+  if (category === 'electronics') return <CircuitBoard className="h-8 w-8" />
+  if (category === 'networking') return <Network className="h-8 w-8" />
+  if (category === 'display') return <Tv className="h-8 w-8" />
+  if (category === 'vehicle') return <Car className="h-8 w-8" />
   return <Cpu className="h-8 w-8" />
 }
 

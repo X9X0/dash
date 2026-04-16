@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer } from 'lucide-react'
+import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Server, Monitor, Cog, CircuitBoard, Network, Tv, Car } from 'lucide-react'
 import { Card, CardContent, Badge, Button } from '@/components/common'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
@@ -68,6 +68,13 @@ function getMachineIcon(type?: { category?: string }) {
   if (!type?.category) return <Cpu className="h-8 w-8" />
   if (type.category === 'printer') return <Printer className="h-8 w-8" />
   if (type.category === 'robot') return <Bot className="h-8 w-8" />
+  if (type.category === 'server') return <Server className="h-8 w-8" />
+  if (type.category === 'computer') return <Monitor className="h-8 w-8" />
+  if (type.category === 'cnc') return <Cog className="h-8 w-8" />
+  if (type.category === 'electronics') return <CircuitBoard className="h-8 w-8" />
+  if (type.category === 'networking') return <Network className="h-8 w-8" />
+  if (type.category === 'display') return <Tv className="h-8 w-8" />
+  if (type.category === 'vehicle') return <Car className="h-8 w-8" />
   return <Cpu className="h-8 w-8" />
 }
 

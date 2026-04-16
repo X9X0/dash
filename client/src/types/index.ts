@@ -10,7 +10,7 @@ export interface User {
 
 export type MachineStatus = 'available' | 'in_use' | 'maintenance' | 'offline'
 export type MachineCondition = 'functional' | 'degraded' | 'broken'
-export type MachineCategory = 'robot' | 'printer'
+export type MachineCategory = 'robot' | 'printer' | 'server' | 'computer' | 'cnc' | 'electronics' | 'networking' | 'display' | 'vehicle'
 
 export interface MachineType {
   id: string

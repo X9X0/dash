@@ -147,7 +147,7 @@ export function Machines() {
         <div>
           <h1 className="text-2xl font-bold">Machines</h1>
           <p className="text-muted-foreground">
-            Manage your robots and 3D printers
+            Manage your lab machines and equipment
           </p>
         </div>
         {user?.role === 'admin' && (

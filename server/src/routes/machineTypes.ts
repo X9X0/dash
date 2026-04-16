@@ -8,7 +8,7 @@ const prisma = new PrismaClient()
 
 const createTypeSchema = z.object({
   name: z.string().min(1),
-  category: z.enum(['robot', 'printer']),
+  category: z.enum(['robot', 'printer', 'server', 'computer', 'cnc', 'electronics', 'networking', 'display', 'vehicle']),
   icon: z.string().optional(),
   fieldsSchema: z.record(z.any()).optional(),
 })

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Loader2, Plus, Pencil, Trash2, Cpu, Printer, Search } from 'lucide-react'
+import { X, Loader2, Plus, Pencil, Trash2, Cpu, Printer, Search, Server, Monitor, Cog, CircuitBoard, Network, Tv, Car } from 'lucide-react'
 import {
   Button,
   Card,
@@ -22,6 +22,13 @@ import type { MachineType, MachineCategory } from '@/types'
 const categoryIcons: Record<MachineCategory, React.ReactNode> = {
   robot: <Cpu className="h-4 w-4" />,
   printer: <Printer className="h-4 w-4" />,
+  server: <Server className="h-4 w-4" />,
+  computer: <Monitor className="h-4 w-4" />,
+  cnc: <Cog className="h-4 w-4" />,
+  electronics: <CircuitBoard className="h-4 w-4" />,
+  networking: <Network className="h-4 w-4" />,
+  display: <Tv className="h-4 w-4" />,
+  vehicle: <Car className="h-4 w-4" />,
 }
 
 export function MachineTypes() {
@@ -308,6 +315,13 @@ function MachineTypeDialog({ open, onOpenChange, editingType, onSave }: MachineT
                 <SelectContent>
                   <SelectItem value="robot">Robot</SelectItem>
                   <SelectItem value="printer">Printer</SelectItem>
+                  <SelectItem value="server">Server</SelectItem>
+                  <SelectItem value="computer">Computer</SelectItem>
+                  <SelectItem value="cnc">CNC</SelectItem>
+                  <SelectItem value="electronics">Electronics</SelectItem>
+                  <SelectItem value="networking">Networking</SelectItem>
+                  <SelectItem value="display">Display</SelectItem>
+                  <SelectItem value="vehicle">Vehicle</SelectItem>
                 </SelectContent>
               </Select>
             </div>
