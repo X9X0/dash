@@ -171,25 +171,42 @@ async function syncPrinters(): Promise<SyncResult> {
     })
   }
 
+  // Fetch maintenance overviews in parallel so we can sync total_print_hours → hourMeter.
+  // Missing/failed overviews just mean hourMeter stays untouched for that printer.
+  const printHoursByBBId = new Map<number, number>()
+  const maintenanceResults = await Promise.allSettled(
+    bbPrinters.map((p) => bbFetch(`/maintenance/printers/${p.id}`))
+  )
+  maintenanceResults.forEach((r, i) => {
+    if (r.status === 'fulfilled' && typeof r.value?.total_print_hours === 'number') {
+      printHoursByBBId.set(bbPrinters[i].id, r.value.total_print_hours)
+    }
+  })
+
   for (const bbPrinter of bbPrinters) {
     const existingIP = ipToMachineIP.get(bbPrinter.ip_address)
+    const printHours = printHoursByBBId.get(bbPrinter.id)
 
     if (existingIP) {
-      // Printer already linked — update name if changed
+      // Printer already linked — update name, status, and hour meter if changed
       seenMachineIds.add(existingIP.machineId)
       const machine = existingIP.machine
+      const updates: { name?: string; status?: string; hourMeter?: number } = {}
+
       if (machine.name !== bbPrinter.name) {
-        await prisma.machine.update({
-          where: { id: machine.id },
-          data: { name: bbPrinter.name },
-        })
-        result.updated.push(bbPrinter.name)
+        updates.name = bbPrinter.name
       }
-      // Ensure it's not marked offline if BamBuddy still knows about it
       if (machine.status === 'offline') {
+        updates.status = 'available'
+      }
+      if (printHours !== undefined && printHours !== machine.hourMeter) {
+        updates.hourMeter = printHours
+      }
+
+      if (Object.keys(updates).length > 0) {
         await prisma.machine.update({
           where: { id: machine.id },
-          data: { status: 'available' },
+          data: updates,
         })
         if (!result.updated.includes(bbPrinter.name)) {
           result.updated.push(bbPrinter.name)
@@ -207,6 +224,7 @@ async function syncPrinters(): Promise<SyncResult> {
           condition: 'functional',
           icon: 'printer',
           autoHourTracking: false,
+          hourMeter: printHours ?? 0,
           ips: {
             create: {
               label: 'printer',
