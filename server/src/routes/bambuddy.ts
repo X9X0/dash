@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { Readable } from 'stream'
 import { authenticate, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
+import { round2 } from '../lib/hours.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -179,7 +180,7 @@ async function syncPrinters(): Promise<SyncResult> {
   )
   maintenanceResults.forEach((r, i) => {
     if (r.status === 'fulfilled' && typeof r.value?.total_print_hours === 'number') {
-      printHoursByBBId.set(bbPrinters[i].id, r.value.total_print_hours)
+      printHoursByBBId.set(bbPrinters[i].id, round2(r.value.total_print_hours))
     }
   })
 

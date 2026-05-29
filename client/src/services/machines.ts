@@ -1,5 +1,5 @@
 import api from './api'
-import type { Machine, MachineType, MachineStatus, MachineCondition, HourEntry, ServiceRecord, MaintenanceRequest, MachineStatusLog, MachineAttachment } from '@/types'
+import type { Machine, MachineType, MachineStatus, MachineCondition, HourEntry, ServiceRecord, MaintenanceRequest, MachineStatusLog, MachineAttachment, UptimeData } from '@/types'
 
 export const machineService = {
   async getAll(): Promise<Machine[]> {
@@ -53,6 +53,13 @@ export const machineService = {
 
   async getTimeline(id: string): Promise<{ serviceRecords: ServiceRecord[]; maintenanceRequests: MaintenanceRequest[]; statusLogs: MachineStatusLog[] }> {
     const { data } = await api.get(`/machines/${id}/timeline`)
+    return data
+  },
+
+  async getUptime(id: string, days?: number): Promise<UptimeData> {
+    const { data } = await api.get<UptimeData>(`/machines/${id}/uptime`, {
+      params: days ? { days } : undefined,
+    })
     return data
   },
 

@@ -23,6 +23,7 @@ import { bambuddyRouter, startBamBuddySync } from './routes/bambuddy.js'
 import { setupSocket } from './socket/index.js'
 import { startAutoHourTracking } from './jobs/autoHourTracking.js'
 import { startClaimExpiry } from './jobs/claimExpiry.js'
+import { startUptimeMonitoring } from './jobs/uptimeMonitoring.js'
 
 dotenv.config()
 
@@ -92,6 +93,7 @@ httpServer.listen(PORT, () => {
   // Start background jobs
   startAutoHourTracking()
   startClaimExpiry(io)
+  startUptimeMonitoring(io)
   startBamBuddySync()
 })
 

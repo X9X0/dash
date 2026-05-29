@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Loader2, Clock } from 'lucide-react'
 import { Button, Input, Label } from '@/components/common'
+import { formatHours } from '@/lib/utils'
 import { machineService } from '@/services/machines'
 
 interface AddHoursDialogProps {
@@ -97,7 +98,7 @@ export function AddHoursDialog({
 
             <div className="p-3 rounded-lg bg-muted/50">
               <p className="text-sm text-muted-foreground">Current hour meter</p>
-              <p className="text-2xl font-bold">{currentHours.toLocaleString()} hours</p>
+              <p className="text-2xl font-bold">{formatHours(currentHours)} hours</p>
             </div>
 
             <div className="space-y-2">
@@ -105,8 +106,8 @@ export function AddHoursDialog({
               <Input
                 id="hours"
                 type="number"
-                step="0.1"
-                min="0.1"
+                step="0.01"
+                min="0.01"
                 value={formData.hours}
                 onChange={(e) => setFormData({ ...formData, hours: e.target.value })}
                 placeholder="e.g., 8.5"

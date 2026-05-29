@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Cpu, Printer, Bot, MapPin, Clock, Wifi, WifiOff, Lock, Unlock, Loader2, Timer, Server, Monitor, Cog, CircuitBoard, Network, Tv, Car } from 'lucide-react'
 import { Card, CardContent, Badge, Button } from '@/components/common'
+import { formatHours } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
 import { parseISO, differenceInSeconds } from 'date-fns'
@@ -177,7 +178,7 @@ export function MachineCard({ machine, pingStatus, bbStatus, onClaimChange }: Ma
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
-              <span>{localMachine.hourMeter.toLocaleString()} hours</span>
+              <span>{formatHours(localMachine.hourMeter)} hours</span>
             </div>
             {(resolvedHostname || resolvedIP) && (
               <div className="text-xs font-mono truncate space-y-0.5">
