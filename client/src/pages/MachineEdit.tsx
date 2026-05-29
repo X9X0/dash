@@ -512,7 +512,7 @@ export function MachineEdit() {
               {formData.alertOnOffline && (
                 <div className="space-y-4 rounded-md border p-4">
                   <div className="space-y-2">
-                    <Label htmlFor="alertEmails">Additional recipients</Label>
+                    <Label htmlFor="alertEmails">Recipients</Label>
                     <textarea
                       id="alertEmails"
                       rows={2}
