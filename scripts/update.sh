@@ -6,9 +6,10 @@ set -e
 # Pull latest changes from git and rebuild
 #
 # Usage: ./update.sh [OPTIONS]
-#   --reset    Discard all local changes and reset to origin (production mode)
-#   --stash    Automatically stash changes without prompting
-#   --help     Show this help message
+#   --reset           Discard all local changes and reset to origin (production mode)
+#   --stash           Automatically stash changes without prompting
+#   --branch <name>   Check out and update to the given branch (default: current)
+#   --help            Show this help message
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,24 +30,35 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # Parse arguments
 AUTO_RESET=0
 AUTO_STASH=0
-for arg in "$@"; do
-    case $arg in
+TARGET_BRANCH=""
+while [ $# -gt 0 ]; do
+    case $1 in
         --reset)
             AUTO_RESET=1
             ;;
         --stash)
             AUTO_STASH=1
             ;;
+        --branch)
+            TARGET_BRANCH="$2"
+            if [ -z "$TARGET_BRANCH" ]; then
+                echo "Error: --branch requires a branch name" >&2
+                exit 1
+            fi
+            shift
+            ;;
         --help)
             echo "Usage: ./update.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --reset    Discard all local changes and reset to origin (production mode)"
-            echo "  --stash    Automatically stash changes without prompting"
-            echo "  --help     Show this help message"
+            echo "  --reset           Discard all local changes and reset to origin (production mode)"
+            echo "  --stash           Automatically stash changes without prompting"
+            echo "  --branch <name>   Check out and update to the given branch (default: current)"
+            echo "  --help            Show this help message"
             exit 0
             ;;
     esac
+    shift
 done
 
 # Check if running as root
@@ -124,6 +136,24 @@ if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
                 exit 1
                 ;;
         esac
+    fi
+fi
+
+# Switch to the requested branch (if any) before pulling
+if [ -n "$TARGET_BRANCH" ]; then
+    log_info "Fetching from origin..."
+    git fetch origin || {
+        log_error "git fetch failed."
+        exit 1
+    }
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
+        log_info "Switching to branch '$TARGET_BRANCH'..."
+        git checkout "$TARGET_BRANCH" || {
+            log_error "Could not check out branch '$TARGET_BRANCH'. Does it exist on origin?"
+            exit 1
+        }
+        log_success "On branch '$TARGET_BRANCH'"
     fi
 fi
 
