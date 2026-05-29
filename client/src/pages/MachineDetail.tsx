@@ -202,6 +202,28 @@ export function MachineDetail() {
 
   // Uptime monitoring state
   const [uptime, setUptime] = useState<UptimeData | null>(null)
+  const [nextCheckIn, setNextCheckIn] = useState<string | null>(null)
+
+  // Tick a countdown to the next uptime check once per second.
+  useEffect(() => {
+    if (!uptime?.monitorUptime) {
+      setNextCheckIn(null)
+      return
+    }
+
+    const computeNext = () => {
+      // Predicted next check = last check + interval. If never checked, it's due now.
+      const last = uptime.lastUptimeCheckAt ? new Date(uptime.lastUptimeCheckAt).getTime() : 0
+      const nextAt = last + uptime.checkIntervalMinutes * 60 * 1000
+      const secondsLeft = Math.round((nextAt - Date.now()) / 1000)
+      // The job ticks every minute, so a check lands shortly after zero.
+      setNextCheckIn(secondsLeft <= 0 ? 'Checking soon…' : formatCountdown(new Date(nextAt).toISOString()))
+    }
+
+    computeNext()
+    const interval = setInterval(computeNext, 1000)
+    return () => clearInterval(interval)
+  }, [uptime?.monitorUptime, uptime?.lastUptimeCheckAt, uptime?.checkIntervalMinutes])
 
   // BamBuddy state
   const [bbStatus, setBbStatus] = useState<BamBuddyPrinterStatus | null>(null)
@@ -232,7 +254,16 @@ export function MachineDetail() {
         bambuddyService.getStatus(id).then((s) => setBbStatus(s)).catch(() => {})
       }
     }, 10000)
-    return () => clearInterval(bbInterval)
+
+    // Poll uptime every 30s so the badge and next-check countdown stay current
+    const uptimeInterval = setInterval(() => {
+      if (id) fetchUptime()
+    }, 30000)
+
+    return () => {
+      clearInterval(bbInterval)
+      clearInterval(uptimeInterval)
+    }
   }, [id, isAdmin])
 
   const fetchUsers = async () => {
@@ -764,6 +795,12 @@ export function MachineDetail() {
                         </span>
                       )}
                     </p>
+                    {nextCheckIn && (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Timer className="h-3 w-3" />
+                        Next check: {nextCheckIn}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}

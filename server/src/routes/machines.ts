@@ -789,7 +789,14 @@ router.get('/:id/uptime', authenticate, async (req: AuthRequest, res) => {
 
     const machine = await prisma.machine.findUnique({
       where: { id },
-      select: { isOnline: true, lastOnlineAt: true, lastOfflineAt: true, monitorUptime: true },
+      select: {
+        isOnline: true,
+        lastOnlineAt: true,
+        lastOfflineAt: true,
+        monitorUptime: true,
+        checkIntervalMinutes: true,
+        lastUptimeCheckAt: true,
+      },
     })
     if (!machine) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -832,6 +839,8 @@ router.get('/:id/uptime', authenticate, async (req: AuthRequest, res) => {
       monitorUptime: machine.monitorUptime,
       lastOnlineAt: machine.lastOnlineAt,
       lastOfflineAt: machine.lastOfflineAt,
+      checkIntervalMinutes: machine.checkIntervalMinutes,
+      lastUptimeCheckAt: machine.lastUptimeCheckAt,
       windowDays: days,
       uptimePercent: uptimePercent === null ? null : Math.round(uptimePercent * 100) / 100,
       onlineSeconds: Math.round(onlineMs / 1000),

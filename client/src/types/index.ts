@@ -90,6 +90,8 @@ export interface UptimeData {
   monitorUptime: boolean
   lastOnlineAt: string | null
   lastOfflineAt: string | null
+  checkIntervalMinutes: number
+  lastUptimeCheckAt: string | null
   windowDays: number
   uptimePercent: number | null
   onlineSeconds: number
