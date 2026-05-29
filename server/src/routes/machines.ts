@@ -7,6 +7,7 @@ import dns from 'dns'
 import net from 'net'
 import { authenticate, requireAdmin, requireOperator, AuthRequest } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
+import { round2 } from '../lib/hours.js'
 
 const execAsync = promisify(exec)
 const dnsLookup = promisify(dns.lookup)
@@ -368,6 +369,11 @@ const createMachineSchema = z.object({
   notes: z.string().nullable().optional(),
   statusNote: z.string().nullable().optional(),
   autoHourTracking: z.boolean().optional(),
+  monitorUptime: z.boolean().optional(),
+  alertOnOffline: z.boolean().optional(),
+  alertEmails: z.string().nullable().optional(),
+  alertAdmins: z.boolean().optional(),
+  alertClaimer: z.boolean().optional(),
 })
 
 const updateMachineSchema = createMachineSchema.partial()
@@ -470,12 +476,17 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
         status: data.status || 'available',
         condition: data.condition || 'functional',
         conditionNote: data.conditionNote || null,
-        hourMeter: data.hourMeter || 0,
+        hourMeter: round2(data.hourMeter || 0),
         buildDate: data.buildDate ? new Date(data.buildDate) : null,
         icon: data.icon || null,
         notes: data.notes || null,
         statusNote: data.statusNote || null,
         autoHourTracking: data.autoHourTracking ?? true,
+        monitorUptime: data.monitorUptime ?? false,
+        alertOnOffline: data.alertOnOffline ?? false,
+        alertEmails: data.alertEmails || null,
+        alertAdmins: data.alertAdmins ?? false,
+        alertClaimer: data.alertClaimer ?? false,
       },
       include: {
         type: true,
@@ -513,6 +524,9 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
     const updateData: Record<string, unknown> = { ...data }
     if (data.buildDate !== undefined) {
       updateData.buildDate = data.buildDate ? new Date(data.buildDate) : null
+    }
+    if (data.hourMeter !== undefined) {
+      updateData.hourMeter = round2(data.hourMeter)
     }
 
     const machine = await prisma.machine.update({
@@ -603,7 +617,8 @@ router.patch('/:id/status', authenticate, requireOperator, async (req: AuthReque
 router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
-    const { hours, date, notes } = addHoursSchema.parse(req.body)
+    const { hours: rawHours, date, notes } = addHoursSchema.parse(req.body)
+    const hours = round2(rawHours)
 
     // Create hour entry
     const hourEntry = await prisma.hourEntry.create({
@@ -616,10 +631,14 @@ router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest
       },
     })
 
-    // Update machine hour meter
+    // Update machine hour meter (round the resulting total to hundredths)
+    const existing = await prisma.machine.findUnique({
+      where: { id },
+      select: { hourMeter: true },
+    })
     await prisma.machine.update({
       where: { id },
-      data: { hourMeter: { increment: hours } },
+      data: { hourMeter: round2((existing?.hourMeter ?? 0) + hours) },
     })
 
     // Log activity
@@ -754,6 +773,70 @@ router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
   } catch (error) {
     console.error('Get timeline error:', error)
     res.status(500).json({ error: 'Failed to get timeline' })
+  }
+})
+
+// Get uptime history + computed uptime percentage for a machine
+router.get('/:id/uptime', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string
+    const days = req.query.days ? Math.max(1, parseInt(req.query.days as string, 10)) : 7
+    const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+    const machine = await prisma.machine.findUnique({
+      where: { id },
+      select: { isOnline: true, lastOnlineAt: true, lastOfflineAt: true, monitorUptime: true },
+    })
+    if (!machine) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
+
+    const events = await prisma.uptimeEvent.findMany({
+      where: { machineId: id, timestamp: { gte: windowStart } },
+      orderBy: { timestamp: 'asc' },
+    })
+
+    // Walk transitions across the window, summing time spent online vs offline.
+    // We need the state at windowStart, so look up the most recent event before it.
+    const priorEvent = await prisma.uptimeEvent.findFirst({
+      where: { machineId: id, timestamp: { lt: windowStart } },
+      orderBy: { timestamp: 'desc' },
+    })
+
+    let cursor = windowStart
+    let currentState = priorEvent?.status ?? events[0]?.status ?? null
+    let onlineMs = 0
+    let offlineMs = 0
+
+    for (const evt of events) {
+      const segment = evt.timestamp.getTime() - cursor.getTime()
+      if (currentState === 'online') onlineMs += segment
+      else if (currentState === 'offline') offlineMs += segment
+      cursor = evt.timestamp
+      currentState = evt.status
+    }
+    // Trailing segment from the last event up to now
+    const tail = Date.now() - cursor.getTime()
+    if (currentState === 'online') onlineMs += tail
+    else if (currentState === 'offline') offlineMs += tail
+
+    const trackedMs = onlineMs + offlineMs
+    const uptimePercent = trackedMs > 0 ? (onlineMs / trackedMs) * 100 : null
+
+    res.json({
+      isOnline: machine.isOnline,
+      monitorUptime: machine.monitorUptime,
+      lastOnlineAt: machine.lastOnlineAt,
+      lastOfflineAt: machine.lastOfflineAt,
+      windowDays: days,
+      uptimePercent: uptimePercent === null ? null : Math.round(uptimePercent * 100) / 100,
+      onlineSeconds: Math.round(onlineMs / 1000),
+      offlineSeconds: Math.round(offlineMs / 1000),
+      events,
+    })
+  } catch (error) {
+    console.error('Get uptime error:', error)
+    res.status(500).json({ error: 'Failed to get uptime history' })
   }
 })
 

@@ -58,6 +58,14 @@ export interface Machine {
   statusNote: string | null
   autoHourTracking: boolean
   lastPingAt: string | null
+  monitorUptime: boolean
+  isOnline: boolean | null
+  lastOnlineAt: string | null
+  lastOfflineAt: string | null
+  alertOnOffline: boolean
+  alertEmails: string | null
+  alertAdmins: boolean
+  alertClaimer: boolean
   claimedById: string | null
   claimedBy?: { id: string; name: string } | null
   claimedAt: string | null
@@ -65,6 +73,26 @@ export interface Machine {
   createdAt: string
   ips?: MachineIP[]
   customFields?: MachineCustomField[]
+}
+
+export interface UptimeEvent {
+  id: string
+  machineId: string
+  status: 'online' | 'offline'
+  timestamp: string
+  durationSeconds: number | null
+}
+
+export interface UptimeData {
+  isOnline: boolean | null
+  monitorUptime: boolean
+  lastOnlineAt: string | null
+  lastOfflineAt: string | null
+  windowDays: number
+  uptimePercent: number | null
+  onlineSeconds: number
+  offlineSeconds: number
+  events: UptimeEvent[]
 }
 
 export type ReservationStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed'

@@ -224,6 +224,7 @@ export function AddMachineDialog({ open, onOpenChange, machineTypes }: AddMachin
                   id="hourMeter"
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formData.hourMeter}
                   onChange={(e) => setFormData({ ...formData, hourMeter: Number(e.target.value) })}
                 />

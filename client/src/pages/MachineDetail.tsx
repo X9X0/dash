@@ -66,6 +66,7 @@ import {
   SelectValue,
 } from '@/components/common'
 import { machineService } from '@/services/machines'
+import { formatHours } from '@/lib/utils'
 import { userService } from '@/services/users'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
@@ -76,7 +77,7 @@ import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDi
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
 import { MaintenanceRequestDialog } from '@/components/machines/MaintenanceRequestDialog'
 import { EditMaintenanceRequestDialog } from '@/components/machines/EditMaintenanceRequestDialog'
-import type { Machine, MachineStatus, MachineCondition, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment } from '@/types'
+import type { Machine, MachineStatus, MachineCondition, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment, UptimeData } from '@/types'
 
 interface MachineDetailData extends Machine {
   statusLogs?: MachineStatusLog[]
@@ -199,6 +200,9 @@ export function MachineDetail() {
   const [attachmentDescription, setAttachmentDescription] = useState('')
   const [showAllFiles, setShowAllFiles] = useState(false)
 
+  // Uptime monitoring state
+  const [uptime, setUptime] = useState<UptimeData | null>(null)
+
   // BamBuddy state
   const [bbStatus, setBbStatus] = useState<BamBuddyPrinterStatus | null>(null)
   const [bbPrintLog, setBbPrintLog] = useState<BamBuddyPrintLogEntry[]>([])
@@ -216,6 +220,7 @@ export function MachineDetail() {
       fetchTimeline()
       fetchAttachments()
       fetchBamBuddyData()
+      fetchUptime()
     }
     if (isAdmin) {
       fetchUsers()
@@ -236,6 +241,15 @@ export function MachineDetail() {
       setUsers(allUsers.map(u => ({ id: u.id, name: u.name })))
     } catch (error) {
       console.error('Failed to fetch users:', error)
+    }
+  }
+
+  const fetchUptime = async () => {
+    if (!id) return
+    try {
+      setUptime(await machineService.getUptime(id))
+    } catch (error) {
+      console.error('Failed to fetch uptime:', error)
     }
   }
 
@@ -718,7 +732,7 @@ export function MachineDetail() {
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <div className="flex-1">
                   <p className="text-sm text-muted-foreground">Hour Meter</p>
-                  <p className="font-medium">{machine.hourMeter.toLocaleString()} hours</p>
+                  <p className="font-medium">{formatHours(machine.hourMeter)} hours</p>
                 </div>
                 {isOperator && (
                   <Button variant="ghost" size="sm" onClick={() => setShowAddHours(true)}>
@@ -727,6 +741,32 @@ export function MachineDetail() {
                   </Button>
                 )}
               </div>
+              {uptime?.monitorUptime && (
+                <div className="flex items-center gap-3">
+                  {uptime.isOnline === false ? (
+                    <WifiOff className="h-4 w-4 text-red-500" />
+                  ) : (
+                    <Wifi className="h-4 w-4 text-green-500" />
+                  )}
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Uptime ({uptime.windowDays}d)
+                    </p>
+                    <p className="font-medium">
+                      {uptime.isOnline === null
+                        ? 'Checking…'
+                        : uptime.isOnline
+                          ? 'Online'
+                          : 'Offline'}
+                      {uptime.uptimePercent !== null && (
+                        <span className="text-muted-foreground font-normal">
+                          {' '}· {uptime.uptimePercent.toFixed(2)}% up
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <Activity className="h-4 w-4 text-muted-foreground" />
                 <div>

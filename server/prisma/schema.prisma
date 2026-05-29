@@ -58,6 +58,19 @@ model Machine {
   statusNote       String?   @map("status_note")
   autoHourTracking Boolean   @default(false) @map("auto_hour_tracking")
   lastPingAt       DateTime? @map("last_ping_at")
+
+  // Uptime / downtime monitoring
+  monitorUptime  Boolean   @default(false) @map("monitor_uptime")
+  isOnline       Boolean?  @map("is_online") // null = not yet checked
+  lastOnlineAt   DateTime? @map("last_online_at")
+  lastOfflineAt  DateTime? @map("last_offline_at")
+
+  // Offline email alerts
+  alertOnOffline Boolean @default(false) @map("alert_on_offline")
+  alertEmails    String? @map("alert_emails") // newline/comma-separated recipient list
+  alertAdmins    Boolean @default(false) @map("alert_admins") // also email all admins
+  alertClaimer   Boolean @default(false) @map("alert_claimer") // also email current claimer
+
   claimedById      String?   @map("claimed_by_id")
   claimedAt        DateTime? @map("claimed_at")
   claimExpiresAt   DateTime? @map("claim_expires_at")
@@ -68,6 +81,7 @@ model Machine {
   ips          MachineIP[]
   customFields MachineCustomField[]
   statusLogs   MachineStatusLog[]
+  uptimeEvents UptimeEvent[]
   reservations Reservation[]
   jobs         Job[]
   activityLogs ActivityLog[]
@@ -114,6 +128,21 @@ model MachineStatusLog {
   user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("machine_status_log")
+}
+
+model UptimeEvent {
+  id              String   @id @default(cuid())
+  machineId       String   @map("machine_id")
+  status          String   // online, offline
+  timestamp       DateTime @default(now())
+  // Duration (seconds) the machine spent in the PREVIOUS state before this
+  // transition. Null for the very first recorded event.
+  durationSeconds Int?     @map("duration_seconds")
+
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([machineId, timestamp])
+  @@map("uptime_events")
 }
 
 model Reservation {

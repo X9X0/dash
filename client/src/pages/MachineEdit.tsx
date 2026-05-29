@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Navigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Save, Clock, Network, Plus, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Save, Clock, Network, Plus, X, Wifi, Bell } from 'lucide-react'
 import {
   Button,
   Card,
@@ -55,6 +55,11 @@ export function MachineEdit() {
     buildDate: '',
     notes: '',
     autoHourTracking: false,
+    monitorUptime: false,
+    alertOnOffline: false,
+    alertEmails: '',
+    alertAdmins: false,
+    alertClaimer: false,
   })
 
   // IP management state
@@ -98,6 +103,11 @@ export function MachineEdit() {
           buildDate: machineData.buildDate ? machineData.buildDate.split('T')[0] : '',
           notes: machineData.notes || '',
           autoHourTracking: machineData.autoHourTracking || false,
+          monitorUptime: machineData.monitorUptime || false,
+          alertOnOffline: machineData.alertOnOffline || false,
+          alertEmails: machineData.alertEmails || '',
+          alertAdmins: machineData.alertAdmins || false,
+          alertClaimer: machineData.alertClaimer || false,
         })
       } catch (error) {
         console.error('Failed to fetch machine:', error)
@@ -134,6 +144,11 @@ export function MachineEdit() {
         buildDate: formData.buildDate || null,
         notes: formData.notes || null,
         autoHourTracking: formData.autoHourTracking,
+        monitorUptime: formData.monitorUptime,
+        alertOnOffline: formData.alertOnOffline,
+        alertEmails: formData.alertEmails.trim() || null,
+        alertAdmins: formData.alertAdmins,
+        alertClaimer: formData.alertClaimer,
       })
 
       updateMachine(id, updatedMachine)
@@ -305,6 +320,7 @@ export function MachineEdit() {
                   id="hourMeter"
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formData.hourMeter}
                   onChange={(e) => setFormData({ ...formData, hourMeter: Number(e.target.value) })}
                 />
@@ -437,6 +453,110 @@ export function MachineEdit() {
               {formData.autoHourTracking && ips.length === 0 && (
                 <div className="mt-3 rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-500">
                   Add at least one IP address above for auto hour tracking to work.
+                </div>
+              )}
+            </div>
+
+            {/* Uptime Monitoring & Offline Alerts Section */}
+            <div className="border-t pt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Wifi className="h-4 w-4 text-muted-foreground" />
+                    <Label htmlFor="monitorUptime" className="text-base font-medium">
+                      Monitor Uptime
+                    </Label>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Periodically ping this machine and record online/offline transitions so
+                    you can see uptime history. Independent of hour tracking.
+                  </p>
+                </div>
+                <Switch
+                  id="monitorUptime"
+                  checked={formData.monitorUptime}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, monitorUptime: checked })
+                  }
+                />
+              </div>
+
+              {formData.monitorUptime && ips.length === 0 && (
+                <div className="rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-500">
+                  Add at least one IP address above for uptime monitoring to work.
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-muted-foreground" />
+                    <Label htmlFor="alertOnOffline" className="text-base font-medium">
+                      Email When Offline
+                    </Label>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Send an email when this machine goes offline. One email per offline
+                    transition (re-armed once it comes back online).
+                  </p>
+                </div>
+                <Switch
+                  id="alertOnOffline"
+                  checked={formData.alertOnOffline}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, alertOnOffline: checked })
+                  }
+                />
+              </div>
+
+              {formData.alertOnOffline && (
+                <div className="space-y-4 rounded-md border p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="alertEmails">Additional recipients</Label>
+                    <textarea
+                      id="alertEmails"
+                      rows={2}
+                      className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      value={formData.alertEmails}
+                      onChange={(e) => setFormData({ ...formData, alertEmails: e.target.value })}
+                      placeholder="alice@example.com, bob@example.com"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Separate multiple addresses with commas or new lines.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="alertAdmins" className="font-normal">
+                      Also email all administrators
+                    </Label>
+                    <Switch
+                      id="alertAdmins"
+                      checked={formData.alertAdmins}
+                      onCheckedChange={(checked) =>
+                        setFormData({ ...formData, alertAdmins: checked })
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="alertClaimer" className="font-normal">
+                      Also email the user who currently has it claimed
+                    </Label>
+                    <Switch
+                      id="alertClaimer"
+                      checked={formData.alertClaimer}
+                      onCheckedChange={(checked) =>
+                        setFormData({ ...formData, alertClaimer: checked })
+                      }
+                    />
+                  </div>
+
+                  {!formData.monitorUptime && (
+                    <div className="rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-500">
+                      Enable "Monitor Uptime" above so offline transitions are detected.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

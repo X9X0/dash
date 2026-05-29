@@ -1,8 +1,7 @@
 import { PrismaClient } from '@prisma/client'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { round2 } from '../lib/hours.js'
+import { pingHost } from '../lib/ping.js'
 
-const execAsync = promisify(exec)
 const prisma = new PrismaClient()
 
 // Interval in minutes between checks
@@ -11,26 +10,6 @@ const CHECK_INTERVAL_MINUTES = 5
 const HOURS_PER_INTERVAL = CHECK_INTERVAL_MINUTES / 60
 
 let isRunning = false
-
-async function pingHost(ipAddress: string, retries = 2): Promise<boolean> {
-  const isWindows = process.platform === 'win32'
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const pingCmd = isWindows
-        ? `ping -n 1 -w 2000 ${ipAddress}`
-        : `ping -c 1 -W 2 ${ipAddress}`
-
-      await execAsync(pingCmd, { timeout: 5000 })
-      return true
-    } catch {
-      // If not the last attempt, wait briefly before retrying
-      if (attempt < retries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    }
-  }
-  return false
-}
 
 async function checkMachines(): Promise<void> {
   if (isRunning) {
@@ -70,10 +49,11 @@ async function checkMachines(): Promise<void> {
           (now.getTime() - new Date(lastPing).getTime()) >= (CHECK_INTERVAL_MINUTES * 60 * 1000 * 0.9) // 90% of interval to account for timing variance
 
         if (shouldCreditHours) {
+          const newTotal = round2(machine.hourMeter + HOURS_PER_INTERVAL)
           await prisma.machine.update({
             where: { id: machine.id },
             data: {
-              hourMeter: { increment: HOURS_PER_INTERVAL },
+              hourMeter: newTotal,
               lastPingAt: now,
             },
           })
@@ -92,7 +72,7 @@ async function checkMachines(): Promise<void> {
             // If system user doesn't exist, just skip the entry
           })
 
-          console.log(`[AutoHourTracking] ${machine.name}: credited ${HOURS_PER_INTERVAL.toFixed(2)} hours (total: ${(machine.hourMeter + HOURS_PER_INTERVAL).toFixed(1)})`)
+          console.log(`[AutoHourTracking] ${machine.name}: credited ${HOURS_PER_INTERVAL.toFixed(2)} hours (total: ${newTotal.toFixed(2)})`)
         } else {
           // Just update lastPingAt without crediting hours
           await prisma.machine.update({
