@@ -56,6 +56,8 @@ export function MachineEdit() {
     notes: '',
     autoHourTracking: false,
     monitorUptime: false,
+    checkIntervalMinutes: 5,
+    offlineThreshold: 1,
     alertOnOffline: false,
     alertEmails: '',
     alertAdmins: false,
@@ -104,6 +106,8 @@ export function MachineEdit() {
           notes: machineData.notes || '',
           autoHourTracking: machineData.autoHourTracking || false,
           monitorUptime: machineData.monitorUptime || false,
+          checkIntervalMinutes: machineData.checkIntervalMinutes ?? 5,
+          offlineThreshold: machineData.offlineThreshold ?? 1,
           alertOnOffline: machineData.alertOnOffline || false,
           alertEmails: machineData.alertEmails || '',
           alertAdmins: machineData.alertAdmins || false,
@@ -145,6 +149,8 @@ export function MachineEdit() {
         notes: formData.notes || null,
         autoHourTracking: formData.autoHourTracking,
         monitorUptime: formData.monitorUptime,
+        checkIntervalMinutes: Number(formData.checkIntervalMinutes),
+        offlineThreshold: Number(formData.offlineThreshold),
         alertOnOffline: formData.alertOnOffline,
         alertEmails: formData.alertEmails.trim() || null,
         alertAdmins: formData.alertAdmins,
@@ -484,6 +490,45 @@ export function MachineEdit() {
               {formData.monitorUptime && ips.length === 0 && (
                 <div className="rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-500">
                   Add at least one IP address above for uptime monitoring to work.
+                </div>
+              )}
+
+              {formData.monitorUptime && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="checkIntervalMinutes">Check interval (minutes)</Label>
+                    <Input
+                      id="checkIntervalMinutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      step="1"
+                      value={formData.checkIntervalMinutes}
+                      onChange={(e) =>
+                        setFormData({ ...formData, checkIntervalMinutes: Number(e.target.value) })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      How often to ping this machine.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="offlineThreshold">Offline after (failed checks)</Label>
+                    <Input
+                      id="offlineThreshold"
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="1"
+                      value={formData.offlineThreshold}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offlineThreshold: Number(e.target.value) })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Consecutive failed pings before it's marked offline (debounce). 1 = immediate.
+                    </p>
+                  </div>
                 </div>
               )}
 

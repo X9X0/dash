@@ -5,8 +5,9 @@ import { sendMail, parseRecipients } from '../lib/mailer.js'
 
 const prisma = new PrismaClient()
 
-// Interval in minutes between uptime checks
-const CHECK_INTERVAL_MINUTES = 5
+// Base tick: the job wakes up this often and pings any machine whose own
+// configured checkIntervalMinutes has elapsed since its last check.
+const TICK_MINUTES = 1
 
 let isRunning = false
 let io: Server | null = null
@@ -99,34 +100,67 @@ async function checkMachines(): Promise<void> {
 
     if (machines.length === 0) return
 
-    console.log(`[UptimeMonitoring] Checking ${machines.length} machines...`)
+    // Only ping machines whose own interval has elapsed since their last check.
+    const due = machines.filter((m) => {
+      if (!m.ips || m.ips.length === 0) return false
+      if (!m.lastUptimeCheckAt) return true
+      const elapsedMs = now.getTime() - new Date(m.lastUptimeCheckAt).getTime()
+      // 90% of the interval to absorb tick-timing variance.
+      return elapsedMs >= m.checkIntervalMinutes * 60 * 1000 * 0.9
+    })
 
-    for (const machine of machines) {
-      if (!machine.ips || machine.ips.length === 0) continue
+    if (due.length === 0) return
 
+    console.log(`[UptimeMonitoring] Checking ${due.length} machine(s)...`)
+
+    for (const machine of due) {
       const isReachable = await pingHost(machine.ips[0].ipAddress)
 
-      // First check ever for this machine: record baseline without a transition.
+      // Debounce: a machine is only considered offline once it has failed
+      // `offlineThreshold` consecutive checks. failCount tracks the streak.
+      const failCount = isReachable ? 0 : machine.failCount + 1
+      const threshold = Math.max(1, machine.offlineThreshold)
+      // Effective state this tick: online if reachable, offline only once the
+      // failure streak reaches the threshold; otherwise hold the prior state.
+      const effectiveOnline = isReachable
+        ? true
+        : failCount >= threshold
+          ? false
+          : machine.isOnline
+
+      // Always record that we checked it, plus the current failure streak.
+      const baseUpdate = { lastUptimeCheckAt: now, failCount }
+
+      // First confirmed check ever: record baseline without a transition/alert.
       if (machine.isOnline === null) {
+        // Don't declare offline on the very first check until the streak is met.
+        if (!isReachable && failCount < threshold) {
+          await prisma.machine.update({ where: { id: machine.id }, data: baseUpdate })
+          continue
+        }
         await prisma.machine.update({
           where: { id: machine.id },
           data: {
-            isOnline: isReachable,
-            lastOnlineAt: isReachable ? now : machine.lastOnlineAt,
-            lastOfflineAt: isReachable ? machine.lastOfflineAt : now,
+            ...baseUpdate,
+            isOnline: effectiveOnline,
+            lastOnlineAt: effectiveOnline ? now : machine.lastOnlineAt,
+            lastOfflineAt: effectiveOnline ? machine.lastOfflineAt : now,
           },
         })
         await prisma.uptimeEvent.create({
-          data: { machineId: machine.id, status: isReachable ? 'online' : 'offline' },
+          data: { machineId: machine.id, status: effectiveOnline ? 'online' : 'offline' },
         })
         continue
       }
 
-      // No change in state — nothing to record.
-      if (isReachable === machine.isOnline) continue
+      // No state change (including: failing but threshold not yet reached).
+      if (effectiveOnline === machine.isOnline) {
+        await prisma.machine.update({ where: { id: machine.id }, data: baseUpdate })
+        continue
+      }
 
       // State transition: compute how long the previous state lasted.
-      const prevSince = isReachable ? machine.lastOfflineAt : machine.lastOnlineAt
+      const prevSince = effectiveOnline ? machine.lastOfflineAt : machine.lastOnlineAt
       const durationSeconds = prevSince
         ? Math.max(0, Math.round((now.getTime() - new Date(prevSince).getTime()) / 1000))
         : null
@@ -134,30 +168,31 @@ async function checkMachines(): Promise<void> {
       await prisma.machine.update({
         where: { id: machine.id },
         data: {
-          isOnline: isReachable,
-          lastOnlineAt: isReachable ? now : machine.lastOnlineAt,
-          lastOfflineAt: isReachable ? machine.lastOfflineAt : now,
+          ...baseUpdate,
+          isOnline: effectiveOnline,
+          lastOnlineAt: effectiveOnline ? now : machine.lastOnlineAt,
+          lastOfflineAt: effectiveOnline ? machine.lastOfflineAt : now,
         },
       })
 
       await prisma.uptimeEvent.create({
         data: {
           machineId: machine.id,
-          status: isReachable ? 'online' : 'offline',
+          status: effectiveOnline ? 'online' : 'offline',
           durationSeconds,
         },
       })
 
       io?.emit('machine:uptime', {
         machineId: machine.id,
-        isOnline: isReachable,
+        isOnline: effectiveOnline,
         timestamp: now.toISOString(),
       })
 
-      console.log(`[UptimeMonitoring] ${machine.name}: ${isReachable ? 'ONLINE' : 'OFFLINE'}`)
+      console.log(`[UptimeMonitoring] ${machine.name}: ${effectiveOnline ? 'ONLINE' : 'OFFLINE'}`)
 
       // Only alert on the transition INTO offline (re-armed when it returns).
-      if (!isReachable) {
+      if (!effectiveOnline) {
         await handleOfflineTransition(machine, now)
       }
     }
@@ -177,10 +212,10 @@ export function startUptimeMonitoring(socketServer: Server): void {
   }
 
   io = socketServer
-  console.log(`[UptimeMonitoring] Starting (interval: ${CHECK_INTERVAL_MINUTES} minutes)`)
+  console.log(`[UptimeMonitoring] Starting (tick: ${TICK_MINUTES} min; per-machine intervals apply)`)
 
   checkMachines()
-  intervalId = setInterval(checkMachines, CHECK_INTERVAL_MINUTES * 60 * 1000)
+  intervalId = setInterval(checkMachines, TICK_MINUTES * 60 * 1000)
 }
 
 export function stopUptimeMonitoring(): void {

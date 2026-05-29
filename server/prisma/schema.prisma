@@ -60,10 +60,14 @@ model Machine {
   lastPingAt       DateTime? @map("last_ping_at")
 
   // Uptime / downtime monitoring
-  monitorUptime  Boolean   @default(false) @map("monitor_uptime")
-  isOnline       Boolean?  @map("is_online") // null = not yet checked
-  lastOnlineAt   DateTime? @map("last_online_at")
-  lastOfflineAt  DateTime? @map("last_offline_at")
+  monitorUptime        Boolean   @default(false) @map("monitor_uptime")
+  isOnline             Boolean?  @map("is_online") // null = not yet checked
+  lastOnlineAt         DateTime? @map("last_online_at")
+  lastOfflineAt        DateTime? @map("last_offline_at")
+  checkIntervalMinutes Int       @default(5) @map("check_interval_minutes") // how often to ping
+  offlineThreshold     Int       @default(1) @map("offline_threshold") // consecutive failures before offline
+  failCount            Int       @default(0) @map("fail_count") // running consecutive-failure counter
+  lastUptimeCheckAt    DateTime? @map("last_uptime_check_at") // last time the uptime job pinged it
 
   // Offline email alerts
   alertOnOffline Boolean @default(false) @map("alert_on_offline")

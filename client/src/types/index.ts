@@ -62,6 +62,8 @@ export interface Machine {
   isOnline: boolean | null
   lastOnlineAt: string | null
   lastOfflineAt: string | null
+  checkIntervalMinutes: number
+  offlineThreshold: number
   alertOnOffline: boolean
   alertEmails: string | null
   alertAdmins: boolean
