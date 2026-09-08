@@ -144,7 +144,7 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
     res.status(201).json(reservation)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isForeignKeyError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -202,7 +202,7 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
     res.json(reservation)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isNotFoundError(error)) {
       return res.status(404).json({ error: 'Reservation not found' })

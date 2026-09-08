@@ -78,7 +78,7 @@ export function AddServiceRecordDialog({
     }
   }, [editingRecord])
 
-  const resetForm = () => {
+  function resetForm() {
     setFormData({
       type: 'repair',
       description: '',

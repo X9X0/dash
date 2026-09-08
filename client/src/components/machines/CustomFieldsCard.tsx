@@ -40,11 +40,7 @@ export function CustomFieldsCard({ machineId, machineType, canEdit }: CustomFiel
   const INITIAL_DISPLAY_COUNT = 4
   const hasMoreFields = fieldEntries.length > INITIAL_DISPLAY_COUNT
 
-  useEffect(() => {
-    fetchCustomFields()
-  }, [machineId])
-
-  const fetchCustomFields = async () => {
+  async function fetchCustomFields() {
     try {
       setLoading(true)
       const { data } = await api.get<MachineCustomField[]>(`/machines/${machineId}/custom-fields`)
@@ -62,6 +58,11 @@ export function CustomFieldsCard({ machineId, machineType, canEdit }: CustomFiel
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    fetchCustomFields()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchCustomFields reads the current machineId
+  }, [machineId])
 
   const handleSave = async () => {
     setError('')

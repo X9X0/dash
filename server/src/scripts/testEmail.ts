@@ -3,7 +3,7 @@ import { sendMail, isMailerConfigured, parseRecipients } from '../lib/mailer.js'
 
 // Load .env from the current working directory (run this from the server/ dir,
 // same as the dev/start scripts) so it uses the exact SMTP config the app uses.
-dotenv.config()
+dotenv.config({ quiet: true })
 
 async function main() {
   // Recipient(s): first CLI arg, else SMTP_TEST_TO, else SMTP_FROM/SMTP_USER.

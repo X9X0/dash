@@ -154,7 +154,7 @@ router.post('/', authenticate, requireOperator, upload.array('photos', 5), async
     // The request was rejected, so the photos multer already saved are orphans.
     await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isForeignKeyError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -215,7 +215,7 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
   } catch (error) {
     await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Update maintenance request error:', error)
     res.status(500).json({ error: 'Failed to update maintenance request' })
@@ -301,7 +301,7 @@ router.post('/:id/updates', authenticate, requireOperator, upload.array('photos'
   } catch (error) {
     await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isForeignKeyError(error)) {
       return res.status(404).json({ error: 'Request not found' })

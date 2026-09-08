@@ -76,7 +76,7 @@ router.post('/register', registerLimiter.check, async (req, res) => {
     res.status(201).json({ user, token: signAccessToken(user.id) })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isUniqueViolation(error)) {
       return res.status(400).json({ error: 'Email already registered' })
@@ -110,7 +110,7 @@ router.post('/login', loginLimiter.check, async (req, res) => {
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Login error:', error)
     res.status(500).json({ error: 'Failed to login' })

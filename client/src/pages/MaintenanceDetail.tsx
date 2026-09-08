@@ -44,13 +44,7 @@ export function MaintenanceDetail() {
   const newUpdatePhotoUrls = useObjectUrls(newUpdatePhotos)
   const [submittingUpdate, setSubmittingUpdate] = useState(false)
 
-  useEffect(() => {
-    if (id) {
-      fetchRequest()
-    }
-  }, [id])
-
-  const fetchRequest = async () => {
+  async function fetchRequest() {
     try {
       setLoading(true)
       const data = await maintenanceService.getById(id!)
@@ -61,6 +55,13 @@ export function MaintenanceDetail() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (id) {
+      fetchRequest()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchRequest reads the current id
+  }, [id])
 
   const handleStatusChange = async (newStatus: MaintenanceStatus) => {
     if (!request) return

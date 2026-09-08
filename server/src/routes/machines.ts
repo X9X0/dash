@@ -535,7 +535,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
     res.status(201).json(machine)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Create machine error:', error)
     res.status(500).json({ error: 'Failed to create machine' })
@@ -583,7 +583,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
     res.json(machine)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isNotFoundError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -636,7 +636,7 @@ router.patch('/:id/status', authenticate, requireOperator, async (req: AuthReque
     res.json(machine)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isNotFoundError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -698,7 +698,7 @@ router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest
     res.status(201).json(hourEntry)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Add hours error:', error)
     res.status(500).json({ error: 'Failed to add hours' })
@@ -724,7 +724,7 @@ router.patch('/:id/status-note', authenticate, requireOperator, async (req: Auth
     res.json(machine)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isNotFoundError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -774,7 +774,7 @@ router.patch('/:id/condition', authenticate, requireOperator, async (req: AuthRe
     res.json(machine)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isNotFoundError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -1040,7 +1040,7 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.fields
     // Rejected request: the files multer already saved would be orphans.
     await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isForeignKeyError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -1137,7 +1137,7 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
     res.json(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Claim machine error:', error)
     res.status(500).json({ error: 'Failed to claim machine' })
@@ -1298,7 +1298,7 @@ router.post('/:id/ips', authenticate, requireAdmin, async (req: AuthRequest, res
     res.status(201).json(ip)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isForeignKeyError(error)) {
       return res.status(404).json({ error: 'Machine not found' })
@@ -1322,7 +1322,7 @@ router.patch('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthReque
     res.json(ip)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isNotFoundError(error)) {
       return res.status(404).json({ error: 'IP address not found' })
