@@ -22,11 +22,6 @@ export const maintenanceService = {
     return data
   },
 
-  async getUpdates(id: string): Promise<MaintenanceUpdate[]> {
-    const { data } = await api.get<MaintenanceUpdate[]>(`/maintenance/${id}/updates`)
-    return data
-  },
-
   async addUpdate(id: string, content: string, photos?: File[]): Promise<MaintenanceUpdate> {
     if (photos && photos.length > 0) {
       const formData = new FormData()
@@ -42,24 +37,28 @@ export const maintenanceService = {
   },
 }
 
+// A FormData body must not go out with the api instance's default JSON
+// content-type, otherwise axios serialises it to JSON and drops the files.
+function requestConfig(body: Partial<ServiceRecord> | FormData) {
+  return body instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined
+}
+
 export const serviceRecordService = {
-  async getAll(params?: { machineId?: string; type?: string }): Promise<ServiceRecord[]> {
-    const { data } = await api.get<ServiceRecord[]>('/service-records', { params })
+  async create(machineId: string, record: Partial<ServiceRecord> | FormData): Promise<ServiceRecord> {
+    const { data } = await api.post<ServiceRecord>(
+      `/machines/${machineId}/service-history`,
+      record,
+      requestConfig(record)
+    )
     return data
   },
 
-  async getByMachine(machineId: string): Promise<ServiceRecord[]> {
-    const { data } = await api.get<ServiceRecord[]>(`/machines/${machineId}/service-history`)
+  async update(id: string, updates: Partial<ServiceRecord> | FormData): Promise<ServiceRecord> {
+    const { data } = await api.patch<ServiceRecord>(`/service-records/${id}`, updates, requestConfig(updates))
     return data
   },
 
-  async create(machineId: string, record: Partial<ServiceRecord>): Promise<ServiceRecord> {
-    const { data } = await api.post<ServiceRecord>(`/machines/${machineId}/service-history`, record)
-    return data
-  },
-
-  async update(id: string, updates: Partial<ServiceRecord>): Promise<ServiceRecord> {
-    const { data } = await api.patch<ServiceRecord>(`/service-records/${id}`, updates)
-    return data
+  async delete(id: string): Promise<void> {
+    await api.delete(`/service-records/${id}`)
   },
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Filter, AlertTriangle, Wrench, Printer } from 'lucide-react'
+import { Plus, Filter, AlertTriangle, Wrench, Printer, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { maintenanceService } from '@/services/maintenance'
@@ -39,7 +39,7 @@ export function Maintenance() {
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [machineTypeFilter, setMachineTypeFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [bbMaintenanceAll, setBbMaintenanceAll] = useState<BamBuddyMaintenanceOverview[]>([])
   const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
 
@@ -67,7 +67,9 @@ export function Maintenance() {
         ])
         setBbMaintenanceAll(bbMaint)
         setBbConfig(config)
-      } catch {}
+      } catch {
+        // BamBuddy is optional; a failed poll keeps the last known data
+      }
     }
     fetchData()
   }, [])
@@ -90,13 +92,13 @@ export function Maintenance() {
   })
 
   const handleRequestCreated = (request: MaintenanceRequest) => {
-    setRequests([request, ...requests])
+    setRequests((prev) => [request, ...prev])
   }
 
   const handleStatusChange = async (requestId: string, newStatus: MaintenanceStatus) => {
     try {
       const updated = await maintenanceService.update(requestId, { status: newStatus })
-      setRequests(requests.map((r) => (r.id === requestId ? updated : r)))
+      setRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)))
     } catch (error) {
       console.error('Failed to update status:', error)
     }
@@ -228,11 +230,15 @@ export function Maintenance() {
       {filteredRequests.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <p className="text-muted-foreground mb-4">
-              {requests.length === 0
-                ? 'No maintenance requests yet'
-                : 'No requests match your filters'}
-            </p>
+            {loading ? (
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            ) : (
+              <p className="text-muted-foreground mb-4">
+                {requests.length === 0
+                  ? 'No maintenance requests yet'
+                  : 'No requests match your filters'}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

@@ -12,6 +12,7 @@ import {
 } from '@/components/common'
 import api from '@/services/api'
 import { maintenanceService } from '@/services/maintenance'
+import { useObjectUrls } from '@/hooks/useObjectUrls'
 import type { MaintenanceType, MaintenancePriority } from '@/types'
 
 interface MaintenanceRequestDialogProps {
@@ -33,6 +34,7 @@ export function MaintenanceRequestDialog({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [photos, setPhotos] = useState<File[]>([])
+  const photoPreviews = useObjectUrls(photos)
 
   const [formData, setFormData] = useState({
     type: 'repair' as MaintenanceType,
@@ -203,12 +205,12 @@ export function MaintenanceRequestDialog({
                     <span className="text-xs text-muted-foreground">{photos.length} file(s) selected</span>
                   )}
                 </div>
-                {photos.length > 0 && (
+                {photoPreviews.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {photos.map((file, i) => (
+                    {photoPreviews.map((url, i) => (
                       <img
-                        key={i}
-                        src={URL.createObjectURL(file)}
+                        key={url}
+                        src={url}
                         alt={`Preview ${i + 1}`}
                         className="h-16 w-16 object-cover rounded border"
                       />

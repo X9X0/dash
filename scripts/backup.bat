@@ -1,7 +1,8 @@
 @echo off
 REM =============================================================================
 REM Dash - Windows Backup Script
-REM Creates a backup of the database for transfer to another machine
+REM Creates a backup of the database, uploaded files and .env configuration
+REM for transfer to another machine (restore with ./scripts/restore.sh on Linux)
 REM =============================================================================
 
 setlocal enabledelayedexpansion
@@ -23,23 +24,54 @@ echo   Dash - Windows Backup Script
 echo =========================================
 echo.
 
-REM Find and copy database
+REM Find the database
 echo [INFO] Looking for database...
 
-if exist "%PROJECT_DIR%\server\prisma\dev.db" (
-    echo [INFO] Found database at server\prisma\dev.db
-    copy "%PROJECT_DIR%\server\prisma\dev.db" "%BACKUP_DIR%\dash.db"
-    echo [OK] Database copied
-) else if exist "%PROJECT_DIR%\server\dev.db" (
-    echo [INFO] Found database at server\dev.db
-    copy "%PROJECT_DIR%\server\dev.db" "%BACKUP_DIR%\dash.db"
-    echo [OK] Database copied
-) else if exist "%PROJECT_DIR%\data\dash.db" (
-    echo [INFO] Found database at data\dash.db
-    copy "%PROJECT_DIR%\data\dash.db" "%BACKUP_DIR%\dash.db"
-    echo [OK] Database copied
+set DB_PATH=
+if exist "%PROJECT_DIR%\server\prisma\dev.db" set DB_PATH=%PROJECT_DIR%\server\prisma\dev.db
+if not defined DB_PATH if exist "%PROJECT_DIR%\server\dev.db" set DB_PATH=%PROJECT_DIR%\server\dev.db
+if not defined DB_PATH if exist "%PROJECT_DIR%\data\dash.db" set DB_PATH=%PROJECT_DIR%\data\dash.db
+
+REM Copying a live SQLite file can give an inconsistent snapshot (a write in
+REM progress, or committed data still in the -wal/-journal sidecar). If
+REM sqlite3.exe is on PATH use its online backup API (always consistent);
+REM otherwise copy the file plus any sidecars and warn. Stop the server first
+REM for a guaranteed-clean plain copy.
+if defined DB_PATH (
+    echo [INFO] Found database at %DB_PATH%
+    where sqlite3 >nul 2>&1
+    if !errorlevel! equ 0 (
+        sqlite3 "%DB_PATH%" ".backup '%BACKUP_DIR%\dash.db'"
+        echo [OK] Database backed up with sqlite3
+    ) else (
+        echo [WARN] sqlite3.exe not found on PATH; copying the database file directly.
+        echo [WARN] If the Dash server is running, this copy may be inconsistent.
+        copy "%DB_PATH%" "%BACKUP_DIR%\dash.db" >nul
+        if exist "%DB_PATH%-wal" copy "%DB_PATH%-wal" "%BACKUP_DIR%\dash.db-wal" >nul
+        if exist "%DB_PATH%-journal" copy "%DB_PATH%-journal" "%BACKUP_DIR%\dash.db-journal" >nul
+        echo [OK] Database copied
+    )
 ) else (
     echo [WARN] No database file found
+)
+
+REM Copy uploaded files: data\uploads (current location) plus server\uploads
+REM (legacy location used by older installs), merged into one uploads folder.
+echo [INFO] Backing up uploads...
+mkdir "%BACKUP_DIR%\uploads"
+set UPLOADS_FOUND=0
+if exist "%PROJECT_DIR%\data\uploads\" (
+    xcopy "%PROJECT_DIR%\data\uploads" "%BACKUP_DIR%\uploads" /E /I /Q /Y >nul
+    set UPLOADS_FOUND=1
+)
+if exist "%PROJECT_DIR%\server\uploads\" (
+    xcopy "%PROJECT_DIR%\server\uploads" "%BACKUP_DIR%\uploads" /E /I /Q /Y >nul
+    set UPLOADS_FOUND=1
+)
+if "!UPLOADS_FOUND!"=="1" (
+    echo [OK] Uploads backed up
+) else (
+    echo [INFO] No uploads to backup
 )
 
 REM Copy .env files
@@ -83,13 +115,15 @@ echo   Backup Complete!
 echo =========================================
 echo.
 echo   Backup location: %PROJECT_DIR%\backups\%BACKUP_NAME%.zip
+echo   Note: the archive contains server.env (secrets) - store it securely.
 echo.
-echo   To restore on Linux:
+echo   To restore on Linux (restore.sh accepts the .zip directly):
 echo     1. Copy the zip file to the Linux machine
-echo     2. Unzip: unzip %BACKUP_NAME%.zip
-echo     3. Run: ./scripts/restore.sh %BACKUP_NAME%
+echo     2. Run: ./scripts/restore.sh %BACKUP_NAME%.zip
 echo.
-echo   Or manually copy dash.db to server/prisma/dev.db
+echo   Or manually: the zip contains %BACKUP_NAME%\dash.db - copy it to data\dash.db
+echo   (production) or server\prisma\dev.db (development) and its uploads\ folder
+echo   to data\uploads\ while the server is stopped.
 echo.
 
 pause

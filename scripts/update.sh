@@ -77,21 +77,54 @@ echo -e "${BLUE}  Dash - Update Script${NC}"
 echo -e "${BLUE}=========================================${NC}"
 echo ""
 
-# Clean up known build artifacts and backup files (untracked, safe to delete)
-CLEANUP_PATTERNS=(
-    "client/tsconfig.tsbuildinfo"
-    "server/tsconfig.tsbuildinfo"
-    "*.tsbuildinfo"
-)
-for pattern in "${CLEANUP_PATTERNS[@]}"; do
-    find "$PROJECT_DIR" -name "$pattern" -type f -delete 2>/dev/null || true
-done
+# Clean up TypeScript incremental build info (untracked, safe to delete).
+# Restricted to client/ and server/ and skips node_modules so the walk is cheap.
+find "$PROJECT_DIR/client" "$PROJECT_DIR/server" \
+    -path '*/node_modules' -prune -o -name '*.tsbuildinfo' -type f -print0 2>/dev/null \
+    | xargs -0 -r rm -f
+
+# Discard local changes and move to the exact state of origin/<branch>.
+# Fetch FIRST so a network failure leaves the working tree untouched, then hard
+# reset (which also handles a diverged local branch that `pull --ff-only`
+# would refuse). The later `git pull` is skipped when this ran.
+reset_to_origin() {
+    log_info "Fetching from origin..."
+    git fetch origin || {
+        log_error "git fetch failed. Nothing was changed."
+        exit 1
+    }
+
+    local CURRENT_BRANCH
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    local BRANCH="${TARGET_BRANCH:-$CURRENT_BRANCH}"
+
+    if ! git rev-parse --verify -q "origin/$BRANCH" > /dev/null; then
+        log_error "Branch '$BRANCH' does not exist on origin. Nothing was changed."
+        exit 1
+    fi
+
+    if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
+        log_info "Switching to branch '$BRANCH'..."
+        git checkout -f -B "$BRANCH" "origin/$BRANCH"
+    fi
+
+    log_info "Resetting to origin/$BRANCH..."
+    git reset --hard "origin/$BRANCH"
+    git clean -fd -e uploads -e scripts/backup-cron.sh
+    RESET_DONE=1
+    log_success "Local changes discarded; now at origin/$BRANCH"
+}
+
+RESET_DONE=0
 
 # Check for uncommitted changes (excluding untracked files we don't care about)
 MODIFIED_FILES=$(git status --porcelain | grep -v "^??" | head -20)
 UNTRACKED_FILES=$(git status --porcelain | grep "^??" | head -20)
 
-if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
+if [ "$AUTO_RESET" -eq 1 ]; then
+    log_info "Resetting to origin (--reset flag)..."
+    reset_to_origin
+elif [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
     if [ -n "$MODIFIED_FILES" ]; then
         log_warn "You have modified files:"
         echo "$MODIFIED_FILES"
@@ -103,12 +136,7 @@ if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
         echo ""
     fi
 
-    if [ "$AUTO_RESET" -eq 1 ]; then
-        log_info "Resetting to origin (--reset flag)..."
-        git checkout -- .
-        git clean -fd -e uploads -e scripts/backup-cron.sh
-        log_success "Local changes discarded"
-    elif [ "$AUTO_STASH" -eq 1 ]; then
+    if [ "$AUTO_STASH" -eq 1 ]; then
         log_info "Stashing changes (--stash flag)..."
         git stash --include-untracked
         STASHED=1
@@ -128,9 +156,7 @@ if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
                 log_success "Changes stashed"
                 ;;
             [Rr])
-                git checkout -- .
-                git clean -fd -e uploads -e scripts/backup-cron.sh
-                log_success "Local changes discarded"
+                reset_to_origin
                 ;;
             *)
                 log_error "Update cancelled."
@@ -140,31 +166,34 @@ if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
     fi
 fi
 
-# Switch to the requested branch (if any) before pulling
-if [ -n "$TARGET_BRANCH" ]; then
-    log_info "Fetching from origin..."
-    git fetch origin || {
-        log_error "git fetch failed."
-        exit 1
-    }
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
-        log_info "Switching to branch '$TARGET_BRANCH'..."
-        git checkout "$TARGET_BRANCH" || {
-            log_error "Could not check out branch '$TARGET_BRANCH'. Does it exist on origin?"
+if [ "$RESET_DONE" -ne 1 ]; then
+    # Switch to the requested branch (if any) before pulling
+    if [ -n "$TARGET_BRANCH" ]; then
+        log_info "Fetching from origin..."
+        git fetch origin || {
+            log_error "git fetch failed."
             exit 1
         }
-        log_success "On branch '$TARGET_BRANCH'"
+        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
+            log_info "Switching to branch '$TARGET_BRANCH'..."
+            git checkout "$TARGET_BRANCH" || {
+                log_error "Could not check out branch '$TARGET_BRANCH'. Does it exist on origin?"
+                exit 1
+            }
+            log_success "On branch '$TARGET_BRANCH'"
+        fi
     fi
-fi
 
-# Pull latest changes
-log_info "Pulling latest changes from git..."
-git pull --ff-only || {
-    log_error "Git pull failed. You may need to resolve conflicts manually."
-    exit 1
-}
-log_success "Git pull complete"
+    # Pull latest changes
+    log_info "Pulling latest changes from git..."
+    git pull --ff-only || {
+        log_error "Git pull failed. You may need to resolve conflicts manually."
+        log_info "On a production server, use: ./scripts/update.sh --reset"
+        exit 1
+    }
+    log_success "Git pull complete"
+fi
 
 # Make sure uploads live in the data directory (the one backup.sh archives).
 # Installs that predate DASH_DATA_DIR stored them in server/uploads, which was
@@ -184,6 +213,47 @@ if [ -f "$PROJECT_DIR/server/.env" ]; then
     fi
 fi
 
+# =============================================================================
+# Idempotently add NSS modules to the "hosts:" line of /etc/nsswitch.conf
+# =============================================================================
+# Usage: nsswitch_hosts_add "<tokens>" before|after
+#   nsswitch_hosts_add "mdns4_minimal [NOTFOUND=return]" before   # before "dns"
+#   nsswitch_hosts_add "wins" after                                # after "dns"
+# Never rewrites the whole line: distro defaults such as "myhostname" or
+# "mymachines" are preserved, and nothing changes if the module is already
+# listed. The first word of <tokens> is the module name that is checked for.
+# NOTE: deploy.sh and update.sh carry identical copies of this function.
+nsswitch_hosts_add() {
+    local TOKENS="$1"
+    local WHERE="${2:-before}"
+    local MODULE="${TOKENS%% *}"
+    local NSSWITCH="/etc/nsswitch.conf"
+
+    [ -f "$NSSWITCH" ] || return 0
+
+    if ! grep -q "^hosts:" "$NSSWITCH"; then
+        log_info "Adding missing hosts: line to $NSSWITCH..."
+        echo "hosts:          files dns" | $SUDO tee -a "$NSSWITCH" > /dev/null
+    fi
+
+    if grep "^hosts:" "$NSSWITCH" | grep -qw "$MODULE"; then
+        return 0
+    fi
+
+    log_info "Adding '$TOKENS' to the hosts: line of $NSSWITCH..."
+    if grep "^hosts:" "$NSSWITCH" | grep -qw "dns"; then
+        if [ "$WHERE" = "after" ]; then
+            $SUDO sed -i -e "/^hosts:/ s/\<dns\>/dns $TOKENS/" "$NSSWITCH"
+        else
+            $SUDO sed -i -e "/^hosts:/ s/\<dns\>/$TOKENS dns/" "$NSSWITCH"
+        fi
+    else
+        # No dns module on the line: append at the end
+        $SUDO sed -i -e "/^hosts:/ s/[[:space:]]*$/ $TOKENS/" "$NSSWITCH"
+    fi
+    log_success "nsswitch.conf hosts line is now: $(grep -m1 '^hosts:' "$NSSWITCH" | sed 's/^hosts:[[:space:]]*//')"
+}
+
 # Ensure network discovery packages are installed (mDNS/NetBIOS for hostname resolution)
 ensure_network_discovery() {
     if ! dpkg -s avahi-daemon libnss-mdns winbind libnss-winbind &>/dev/null 2>&1 && \
@@ -199,14 +269,11 @@ ensure_network_discovery() {
         log_success "Network discovery packages installed"
     fi
 
-    # Ensure nsswitch.conf has wins support
-    if [ -f /etc/nsswitch.conf ]; then
-        if ! grep "^hosts:" /etc/nsswitch.conf | grep -q "wins"; then
-            log_info "Updating /etc/nsswitch.conf for network name resolution..."
-            $SUDO sed -i 's/^hosts:.*/hosts:          files mdns4_minimal [NOTFOUND=return] dns wins/' /etc/nsswitch.conf
-            log_success "nsswitch.conf updated"
-        fi
-    fi
+    # Make sure the mDNS and NetBIOS (wins) modules are on the hosts: line.
+    # Only missing tokens are inserted; whatever else is there (resolve,
+    # myhostname, ...) is preserved.
+    nsswitch_hosts_add "mdns4_minimal [NOTFOUND=return]" before
+    nsswitch_hosts_add "wins" after
 }
 ensure_network_discovery
 
@@ -233,8 +300,8 @@ cd "$PROJECT_DIR/client"
 npm run build
 log_success "Client built"
 
-# Restart service if it exists
-if systemctl list-units --type=service | grep -q "dash.service"; then
+# Restart service if it exists (list-unit-files also finds inactive units)
+if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^dash.service'; then
     log_info "Restarting Dash service..."
     $SUDO systemctl restart dash
 

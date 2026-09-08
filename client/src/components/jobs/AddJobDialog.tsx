@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/common'
 import api from '@/services/api'
+import { toDateTimeLocalInput, fromDateTimeLocalInput } from '@/lib/dates'
 import type { Job, Machine, JobStatus } from '@/types'
 
 interface AddJobDialogProps {
@@ -55,12 +56,8 @@ export function AddJobDialog({
         machineId: editingJob.machineId,
         name: editingJob.name,
         status: editingJob.status,
-        startTime: editingJob.startTime
-          ? new Date(editingJob.startTime).toISOString().slice(0, 16)
-          : '',
-        endTime: editingJob.endTime
-          ? new Date(editingJob.endTime).toISOString().slice(0, 16)
-          : '',
+        startTime: editingJob.startTime ? toDateTimeLocalInput(editingJob.startTime) : '',
+        endTime: editingJob.endTime ? toDateTimeLocalInput(editingJob.endTime) : '',
         notes: editingJob.notes || '',
       })
     } else {
@@ -100,8 +97,9 @@ export function AddJobDialog({
         machineId: formData.machineId,
         name: formData.name.trim(),
         status: formData.status,
-        startTime: formData.startTime || undefined,
-        endTime: formData.endTime || undefined,
+        // datetime-local values are local wall time; send them as instants
+        startTime: formData.startTime ? fromDateTimeLocalInput(formData.startTime) : undefined,
+        endTime: formData.endTime ? fromDateTimeLocalInput(formData.endTime) : undefined,
         notes: formData.notes.trim() || undefined,
       }
 

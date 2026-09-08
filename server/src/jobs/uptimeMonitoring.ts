@@ -1,13 +1,16 @@
-import { PrismaClient } from '@prisma/client'
 import type { Server } from 'socket.io'
+import { prisma } from '../lib/prisma.js'
 import { pingHost } from '../lib/ping.js'
 import { sendMail, parseRecipients } from '../lib/mailer.js'
-
-const prisma = new PrismaClient()
+import { mapConcurrent } from '../lib/concurrency.js'
+import { notifyAdmins } from '../lib/notify.js'
 
 // Base tick: the job wakes up this often and pings any machine whose own
 // configured checkIntervalMinutes has elapsed since its last check.
 const TICK_MINUTES = 1
+// How many machines to ping at once. An unreachable machine takes ~10 s of
+// retries, so pinging serially could push one tick past the next.
+const PING_CONCURRENCY = 5
 
 let isRunning = false
 let io: Server | null = null
@@ -53,19 +56,12 @@ async function handleOfflineTransition(machine: {
   alertClaimer: boolean
   claimedById: string | null
 }, now: Date): Promise<void> {
-  // In-app notification for all admins (cheap, always useful)
-  const admins = await prisma.user.findMany({
-    where: { role: 'admin' },
-    select: { id: true },
+  // In-app notification for all admins (persisted + pushed to their sockets)
+  await notifyAdmins({
+    type: 'machine_offline',
+    title: 'Machine offline',
+    message: `${machine.name} went offline at ${now.toLocaleString()}.`,
   })
-  await prisma.notification.createMany({
-    data: admins.map((a) => ({
-      userId: a.id,
-      type: 'machine_offline',
-      title: 'Machine offline',
-      message: `${machine.name} went offline at ${now.toLocaleString()}.`,
-    })),
-  }).catch((err) => console.error('[UptimeMonitoring] Failed to create notifications:', err))
 
   if (!machine.alertOnOffline) return
 
@@ -95,7 +91,7 @@ async function checkMachines(): Promise<void> {
   try {
     const machines = await prisma.machine.findMany({
       where: { monitorUptime: true },
-      include: { ips: true },
+      include: { ips: { orderBy: { id: 'asc' } } },
     })
 
     if (machines.length === 0) return
@@ -113,8 +109,11 @@ async function checkMachines(): Promise<void> {
 
     console.log(`[UptimeMonitoring] Checking ${due.length} machine(s)...`)
 
-    for (const machine of due) {
-      const isReachable = await pingHost(machine.ips[0].ipAddress)
+    // Ping everything that is due a few at a time, then apply the results in order.
+    const reachability = await mapConcurrent(due, PING_CONCURRENCY, (m) => pingHost(m.ips[0].ipAddress))
+
+    for (const [index, machine] of due.entries()) {
+      const isReachable = reachability[index]
 
       // Debounce: a machine is only considered offline once it has failed
       // `offlineThreshold` consecutive checks. failCount tracks the streak.

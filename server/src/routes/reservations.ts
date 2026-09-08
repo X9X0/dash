@@ -1,10 +1,10 @@
 import { Router } from 'express'
-import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { prisma } from '../lib/prisma.js'
 import { authenticate, requireOperator, AuthRequest } from '../middleware/auth.js'
+import { isForeignKeyError, isNotFoundError, parseDate } from '../lib/errors.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 const createReservationSchema = z.object({
   machineId: z.string().min(1),
@@ -21,6 +21,27 @@ const updateReservationSchema = z.object({
   status: z.enum(['pending', 'confirmed', 'cancelled', 'completed']).optional(),
 })
 
+/** Validate a start/end pair; returns an error message or null. */
+function validateWindow(startTime: Date | null, endTime: Date | null): string | null {
+  if (!startTime || !endTime) return 'Invalid start or end time'
+  if (endTime <= startTime) return 'End time must be after start time'
+  return null
+}
+
+async function hasConflict(machineId: string, startTime: Date, endTime: Date, excludeId?: string): Promise<boolean> {
+  const conflicting = await prisma.reservation.findFirst({
+    where: {
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      machineId,
+      status: { notIn: ['cancelled'] },
+      startTime: { lt: endTime },
+      endTime: { gt: startTime },
+    },
+    select: { id: true },
+  })
+  return conflicting !== null
+}
+
 // Get all reservations
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
@@ -30,9 +51,15 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
     if (machineId) where.machineId = machineId
 
     if (startDate || endDate) {
-      where.startTime = {}
-      if (startDate) (where.startTime as Record<string, Date>).gte = new Date(startDate as string)
-      if (endDate) (where.startTime as Record<string, Date>).lte = new Date(endDate as string)
+      const range: Record<string, Date> = {}
+      const from = parseDate(startDate as string | undefined)
+      const to = parseDate(endDate as string | undefined)
+      if ((startDate && !from) || (endDate && !to)) {
+        return res.status(400).json({ error: 'Invalid date range' })
+      }
+      if (from) range.gte = from
+      if (to) range.lte = to
+      where.startTime = range
     }
 
     const reservations = await prisma.reservation.findMany({
@@ -78,21 +105,14 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
     const data = createReservationSchema.parse(req.body)
-    const startTime = new Date(data.startTime)
-    const endTime = new Date(data.endTime)
+    const startTime = parseDate(data.startTime)
+    const endTime = parseDate(data.endTime)
+    const windowError = validateWindow(startTime, endTime)
+    if (windowError || !startTime || !endTime) {
+      return res.status(400).json({ error: windowError })
+    }
 
-    // Check for conflicts
-    const conflicting = await prisma.reservation.findFirst({
-      where: {
-        machineId: data.machineId,
-        status: { notIn: ['cancelled'] },
-        OR: [
-          { startTime: { lt: endTime }, endTime: { gt: startTime } },
-        ],
-      },
-    })
-
-    if (conflicting) {
+    if (await hasConflict(data.machineId, startTime, endTime)) {
       return res.status(409).json({ error: 'Time slot conflicts with existing reservation' })
     }
 
@@ -126,6 +146,9 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
+    if (isForeignKeyError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Create reservation error:', error)
     res.status(500).json({ error: 'Failed to create reservation' })
   }
@@ -148,30 +171,23 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
     }
 
     const updateData: Record<string, unknown> = {}
-    if (data.startTime) updateData.startTime = new Date(data.startTime)
-    if (data.endTime) updateData.endTime = new Date(data.endTime)
     if (data.purpose) updateData.purpose = data.purpose
     if (data.status) updateData.status = data.status
 
     // Check for conflicts if time is being changed
     if (data.startTime || data.endTime) {
-      const startTime = data.startTime ? new Date(data.startTime) : existing.startTime
-      const endTime = data.endTime ? new Date(data.endTime) : existing.endTime
+      const startTime = data.startTime ? parseDate(data.startTime) : existing.startTime
+      const endTime = data.endTime ? parseDate(data.endTime) : existing.endTime
+      const windowError = validateWindow(startTime, endTime)
+      if (windowError || !startTime || !endTime) {
+        return res.status(400).json({ error: windowError })
+      }
 
-      const conflicting = await prisma.reservation.findFirst({
-        where: {
-          id: { not: id },
-          machineId: existing.machineId,
-          status: { notIn: ['cancelled'] },
-          OR: [
-            { startTime: { lt: endTime }, endTime: { gt: startTime } },
-          ],
-        },
-      })
-
-      if (conflicting) {
+      if (await hasConflict(existing.machineId, startTime, endTime, id)) {
         return res.status(409).json({ error: 'Time slot conflicts with existing reservation' })
       }
+      updateData.startTime = startTime
+      updateData.endTime = endTime
     }
 
     const reservation = await prisma.reservation.update({
@@ -187,6 +203,9 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Reservation not found' })
     }
     console.error('Update reservation error:', error)
     res.status(500).json({ error: 'Failed to update reservation' })

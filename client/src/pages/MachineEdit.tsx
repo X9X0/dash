@@ -19,24 +19,17 @@ import {
 import { machineService } from '@/services/machines'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
+import { categoryOrder } from '@/lib/machines'
+import { toDateInput } from '@/lib/dates'
 import api from '@/services/api'
-import type { Machine, MachineType, MachineStatus, MachineCondition, MachineIP } from '@/types'
-
-const categoryOrder: Record<string, number> = {
-  'Biped Humanoid': 1,
-  'Wheeled Humanoid': 2,
-  'Robot Arm': 3,
-  'Testbench': 4,
-  'FDM Printer': 5,
-  'SLA/Resin Printer': 6,
-  'SLS Printer': 7,
-}
+import type { Machine, MachineStatus, MachineCondition, MachineIP } from '@/types'
 
 export function MachineEdit() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const { machineTypes, setMachineTypes, updateMachine } = useMachineStore()
+  const isAdmin = user?.role === 'admin'
+  const { machineTypes, updateMachine } = useMachineStore()
 
   const [machine, setMachine] = useState<Machine | null>(null)
   const [loading, setLoading] = useState(true)
@@ -70,26 +63,27 @@ export function MachineEdit() {
   const [newIP, setNewIP] = useState({ label: '', ipAddress: '' })
   const [addingIP, setAddingIP] = useState(false)
 
-  // Only admins can access this page
-  if (user?.role !== 'admin') {
-    return <Navigate to={`/machines/${id}`} />
-  }
-
+  // Load the machine (and the type list, once) for this id only. Depending on
+  // the store's machineTypes here would re-run the effect after we populate
+  // them, unmounting the form and discarding anything already typed.
   useEffect(() => {
-    const fetchData = async () => {
-      if (!id) return
+    if (!id || !isAdmin) return
+    let cancelled = false
 
+    const fetchData = async () => {
       try {
         setLoading(true)
+        const { machineTypes: knownTypes, setMachineTypes } = useMachineStore.getState()
         const [machineData, typesData] = await Promise.all([
           machineService.getById(id),
-          machineTypes.length === 0 ? machineService.getTypes() : Promise.resolve(machineTypes),
+          knownTypes.length === 0 ? machineService.getTypes() : Promise.resolve(knownTypes),
         ])
+        if (cancelled) return
 
         setMachine(machineData)
         setIps(machineData.ips || [])
-        if (machineTypes.length === 0) {
-          setMachineTypes(typesData as MachineType[])
+        if (knownTypes.length === 0) {
+          setMachineTypes(typesData)
         }
 
         // Populate form data
@@ -102,7 +96,7 @@ export function MachineEdit() {
           condition: machineData.condition || 'functional',
           conditionNote: machineData.conditionNote || '',
           hourMeter: machineData.hourMeter,
-          buildDate: machineData.buildDate ? machineData.buildDate.split('T')[0] : '',
+          buildDate: machineData.buildDate ? toDateInput(machineData.buildDate) : '',
           notes: machineData.notes || '',
           autoHourTracking: machineData.autoHourTracking || false,
           monitorUptime: machineData.monitorUptime || false,
@@ -114,15 +108,19 @@ export function MachineEdit() {
           alertClaimer: machineData.alertClaimer || false,
         })
       } catch (error) {
+        if (cancelled) return
         console.error('Failed to fetch machine:', error)
         setError('Failed to load machine data')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchData()
-  }, [id, machineTypes, setMachineTypes])
+    return () => {
+      cancelled = true
+    }
+  }, [id, isAdmin])
 
   const sortedMachineTypes = [...machineTypes].sort(
     (a, b) => (categoryOrder[a.name] ?? 99) - (categoryOrder[b.name] ?? 99)
@@ -172,7 +170,7 @@ export function MachineEdit() {
     setAddingIP(true)
     try {
       const { data } = await api.post<MachineIP>(`/machines/${id}/ips`, newIP)
-      setIps([...ips, data])
+      setIps((prev) => [...prev, data])
       setNewIP({ label: '', ipAddress: '' })
       setShowAddIP(false)
     } catch (error) {
@@ -185,10 +183,15 @@ export function MachineEdit() {
   const handleDeleteIP = async (ipId: string) => {
     try {
       await api.delete(`/machines/${id}/ips/${ipId}`)
-      setIps(ips.filter((ip) => ip.id !== ipId))
+      setIps((prev) => prev.filter((ip) => ip.id !== ipId))
     } catch (error) {
       console.error('Failed to delete IP:', error)
     }
+  }
+
+  // Only admins can access this page (checked after all hooks have run)
+  if (!isAdmin) {
+    return <Navigate to={`/machines/${id}`} replace />
   }
 
   if (loading) {

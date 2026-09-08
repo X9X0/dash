@@ -125,7 +125,7 @@ model MachineStatusLog {
   userId    String?  @map("user_id")
   status    String
   condition String?
-  source    String   @default("manual") // manual, api, claim
+  source    String   @default("manual") // manual, api, claim, release
   timestamp DateTime @default(now())
 
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
@@ -199,7 +199,7 @@ model MaintenanceRequest {
   id          String    @id @default(cuid())
   machineId   String    @map("machine_id")
   userId      String    @map("user_id")
-  type        String    // damage, repair, upgrade
+  type        String    // damage, repair, upgrade, checkout
   priority    String    @default("medium") // low, medium, high, critical
   description String
   status      String    @default("submitted") // submitted, in_progress, resolved
@@ -251,13 +251,13 @@ model ServiceRecord {
 model HourEntry {
   id        String   @id @default(cuid())
   machineId String   @map("machine_id")
-  userId    String   @map("user_id")
+  userId    String?  @map("user_id") // null for system-generated entries (auto hour tracking)
   hours     Float
   date      DateTime
   notes     String?
 
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("hour_entries")
 }

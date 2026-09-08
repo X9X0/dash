@@ -1,50 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, Printer, Bot, LogIn, Timer, Rows3, Columns3, Server, Monitor, Cog, CircuitBoard, Network, Tv, Car } from 'lucide-react'
-import { format, parseISO, differenceInSeconds } from 'date-fns'
-
-function formatCountdown(expiresAt: string): string {
-  const now = new Date()
-  const expires = parseISO(expiresAt)
-  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
-
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-  }
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
+import { Cpu, Wifi, WifiOff, RefreshCw, Moon, Sun, LogIn, Timer, Rows3, Columns3 } from 'lucide-react'
+import { format } from 'date-fns'
 import api from '@/services/api'
 import { bambuddyService } from '@/services/bambuddy'
+import { formatCountdown, categoryOrder, getMachineIcon } from '@/lib/machines'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
 import { useKioskStore } from '@/store/kioskStore'
 import { useAuthStore } from '@/store/authStore'
-import type { Machine } from '@/types'
+import type { Machine, PingStatus } from '@/types'
 import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
-
-interface PingStatus {
-  machineId: string
-  reachable: boolean | null
-  hostnameReachable: boolean | null
-  resolvedIP: string | null
-  resolvedHostname: string | null
-}
-
-function getMachineIcon(category?: string) {
-  if (category === 'printer') return <Printer className="h-8 w-8" />
-  if (category === 'robot') return <Bot className="h-8 w-8" />
-  if (category === 'server') return <Server className="h-8 w-8" />
-  if (category === 'computer') return <Monitor className="h-8 w-8" />
-  if (category === 'cnc') return <Cog className="h-8 w-8" />
-  if (category === 'electronics') return <CircuitBoard className="h-8 w-8" />
-  if (category === 'networking') return <Network className="h-8 w-8" />
-  if (category === 'display') return <Tv className="h-8 w-8" />
-  if (category === 'vehicle') return <Car className="h-8 w-8" />
-  return <Cpu className="h-8 w-8" />
-}
 
 export function Kiosk() {
   const navigate = useNavigate()
@@ -104,7 +69,9 @@ export function Kiosk() {
           if (s.dashMachineId) map[s.dashMachineId] = s
         })
         setBbStatuses(map)
-      } catch {}
+      } catch {
+        // BamBuddy is optional; a failed poll keeps the last known data
+      }
 
       setLastUpdate(new Date())
     } catch (error) {
@@ -179,17 +146,6 @@ export function Kiosk() {
       ip: status.resolvedIP,
       hostname: status.resolvedHostname,
     }
-  }
-
-  // Define category order for sorting
-  const categoryOrder: Record<string, number> = {
-    'Biped Humanoid': 1,
-    'Wheeled Humanoid': 2,
-    'Robot Arm': 3,
-    'Testbench': 4,
-    'FDM Printer': 5,
-    'SLA/Resin Printer': 6,
-    'SLS Printer': 7,
   }
 
   // Group machines by type

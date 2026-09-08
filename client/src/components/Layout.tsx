@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { Button } from './common'
 import { useAuthStore } from '@/store/authStore'
 import { bambuddyService } from '@/services/bambuddy'
+import { notificationService } from '@/services/notifications'
 import type { BamBuddyConfig } from '@/types/bambuddy'
 import { useNotificationStore } from '@/store/notificationStore'
 import { useThemeStore, applyTheme } from '@/store/themeStore'
@@ -53,7 +54,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
-  const { unreadCount } = useNotificationStore()
+  const { unreadCount, setUnreadCount } = useNotificationStore()
   const { theme, setTheme } = useThemeStore()
 
   useEffect(() => {
@@ -63,6 +64,11 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     bambuddyService.getConfig().then(setBbConfig).catch(() => {})
   }, [])
+
+  // Seed the bell badge; socket pushes keep it current from here on.
+  useEffect(() => {
+    notificationService.getUnreadCount().then(setUnreadCount).catch(() => {})
+  }, [setUnreadCount])
 
   const handleLogout = () => {
     logout()

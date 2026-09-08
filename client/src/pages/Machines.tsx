@@ -1,25 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Filter } from 'lucide-react'
+import { Plus, Search, Filter, Loader2 } from 'lucide-react'
 import { Button, Card, CardContent, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { useMachineStore } from '@/store/machineStore'
 import { useAuthStore } from '@/store/authStore'
 import { machineService } from '@/services/machines'
 import { bambuddyService } from '@/services/bambuddy'
+import { categoryOrder } from '@/lib/machines'
 import { MachineCard } from '@/components/machines/MachineCard'
 import { AddMachineDialog } from '@/components/machines/AddMachineDialog'
 import api from '@/services/api'
+import type { PingStatus } from '@/types'
 import type { BamBuddyPrinterStatus } from '@/types/bambuddy'
 
-interface PingStatus {
-  machineId: string
-  reachable: boolean | null
-  hostnameReachable: boolean | null
-  resolvedIP: string | null
-  resolvedHostname: string | null
-}
-
 export function Machines() {
-  const { machines, setMachines, machineTypes, setMachineTypes, setLoading } = useMachineStore()
+  const { machines, setMachines, machineTypes, setMachineTypes, isLoading, setLoading } = useMachineStore()
   const { user } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -38,7 +32,9 @@ export function Machines() {
           if (s.dashMachineId) map[s.dashMachineId] = s
         })
         setBbStatuses(map)
-      } catch {}
+      } catch {
+        // BamBuddy is optional; a failed poll keeps the last known data
+      }
     }
 
     const fetchPing = async () => {
@@ -93,17 +89,6 @@ export function Machines() {
     return () => clearInterval(refreshInterval)
   }, [setMachines, setMachineTypes, setLoading])
 
-  // Define category order for sorting
-  const categoryOrder: Record<string, number> = {
-    'Biped Humanoid': 1,
-    'Wheeled Humanoid': 2,
-    'Robot Arm': 3,
-    'Testbench': 4,
-    'FDM Printer': 5,
-    'SLA/Resin Printer': 6,
-    'SLS Printer': 7,
-  }
-
   const filteredMachines = machines
     .filter((machine) => {
       const matchesSearch =
@@ -137,9 +122,8 @@ export function Machines() {
     { value: 'broken', label: 'Broken' },
   ]
 
-  const handleClaimChange = (updated: typeof machines[0]) => {
-    setMachines(machines.map((m) => (m.id === updated.id ? updated : m)))
-  }
+  // Cold load: the store is empty until the first fetch resolves
+  const showLoading = isLoading && machines.length === 0
 
   return (
     <div className="space-y-6">
@@ -218,23 +202,29 @@ export function Machines() {
       {/* Machine Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredMachines.map((machine) => (
-          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} bbStatus={bbStatuses[machine.id]} onClaimChange={handleClaimChange} />
+          <MachineCard key={machine.id} machine={machine} pingStatus={pingStatus[machine.id]} bbStatus={bbStatuses[machine.id]} />
         ))}
       </div>
 
       {filteredMachines.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <p className="text-muted-foreground mb-4">
-              {machines.length === 0
-                ? 'No machines added yet'
-                : 'No machines match your filters'}
-            </p>
-            {user?.role === 'admin' && machines.length === 0 && (
-              <Button onClick={() => setShowAddDialog(true)}>
-                <Plus className="h-4 w-4" />
-                Add your first machine
-              </Button>
+            {showLoading ? (
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-4">
+                  {machines.length === 0
+                    ? 'No machines added yet'
+                    : 'No machines match your filters'}
+                </p>
+                {user?.role === 'admin' && machines.length === 0 && (
+                  <Button onClick={() => setShowAddDialog(true)}>
+                    <Plus className="h-4 w-4" />
+                    Add your first machine
+                  </Button>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

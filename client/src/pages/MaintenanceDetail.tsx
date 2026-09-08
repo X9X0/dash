@@ -12,13 +12,8 @@ import {
 } from '@/components/common'
 import { maintenanceService } from '@/services/maintenance'
 import { useAuthStore } from '@/store/authStore'
+import { useObjectUrls } from '@/hooks/useObjectUrls'
 import type { MaintenanceRequest, MaintenancePriority, MaintenanceStatus } from '@/types'
-
-function getPhotoUrl(path: string): string {
-  if (path.startsWith('http')) return path
-  // Use relative URL - works regardless of domain/port
-  return path
-}
 
 const priorityBadgeVariants: Record<MaintenancePriority, 'default' | 'secondary' | 'warning' | 'destructive'> = {
   low: 'secondary',
@@ -46,6 +41,7 @@ export function MaintenanceDetail() {
   // Work log form
   const [newUpdateContent, setNewUpdateContent] = useState('')
   const [newUpdatePhotos, setNewUpdatePhotos] = useState<File[]>([])
+  const newUpdatePhotoUrls = useObjectUrls(newUpdatePhotos)
   const [submittingUpdate, setSubmittingUpdate] = useState(false)
 
   useEffect(() => {
@@ -220,9 +216,9 @@ export function MaintenanceDetail() {
                 <p className="text-sm text-muted-foreground mb-2">Photos</p>
                 <div className="flex flex-wrap gap-2">
                   {request.photos.map((photo, i) => (
-                    <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                    <a key={i} href={photo} target="_blank" rel="noopener noreferrer">
                       <img
-                        src={getPhotoUrl(photo)}
+                        src={photo}
                         alt={`Photo ${i + 1}`}
                         className="h-24 w-24 object-cover rounded border hover:opacity-80"
                       />
@@ -273,9 +269,9 @@ export function MaintenanceDetail() {
                       {update.photos && update.photos.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-3">
                           {update.photos.map((photo, i) => (
-                            <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                            <a key={i} href={photo} target="_blank" rel="noopener noreferrer">
                               <img
-                                src={getPhotoUrl(photo)}
+                                src={photo}
                                 alt={`Photo ${i + 1}`}
                                 className="h-16 w-16 object-cover rounded border hover:opacity-80"
                               />
@@ -310,10 +306,10 @@ export function MaintenanceDetail() {
                 {/* Photo previews */}
                 {newUpdatePhotos.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {newUpdatePhotos.map((file, i) => (
-                      <div key={i} className="relative">
+                    {newUpdatePhotoUrls.map((url, i) => (
+                      <div key={url} className="relative">
                         <img
-                          src={URL.createObjectURL(file)}
+                          src={url}
                           alt={`Preview ${i + 1}`}
                           className="h-16 w-16 object-cover rounded border"
                         />

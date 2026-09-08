@@ -12,6 +12,7 @@ import {
 } from '@/components/common'
 import api from '@/services/api'
 import { maintenanceService } from '@/services/maintenance'
+import { useObjectUrls } from '@/hooks/useObjectUrls'
 import type { MaintenanceRequest, MaintenanceType, MaintenancePriority, MaintenanceStatus } from '@/types'
 
 interface EditMaintenanceRequestDialogProps {
@@ -30,6 +31,7 @@ export function EditMaintenanceRequestDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [newPhotos, setNewPhotos] = useState<File[]>([])
+  const newPhotoPreviews = useObjectUrls(newPhotos)
 
   const [formData, setFormData] = useState({
     type: request.type,
@@ -216,12 +218,12 @@ export function EditMaintenanceRequestDialog({
                   <span className="text-xs text-muted-foreground">{newPhotos.length} file(s) selected</span>
                 )}
               </div>
-              {newPhotos.length > 0 && (
+              {newPhotoPreviews.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {newPhotos.map((file, i) => (
+                  {newPhotoPreviews.map((url, i) => (
                     <img
-                      key={i}
-                      src={URL.createObjectURL(file)}
+                      key={url}
+                      src={url}
                       alt={`Preview ${i + 1}`}
                       className="h-16 w-16 object-cover rounded border"
                     />

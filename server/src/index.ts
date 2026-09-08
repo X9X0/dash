@@ -10,6 +10,8 @@ import { fileURLToPath } from 'url'
 import { dirname, extname, join } from 'path'
 
 import { uploadsDir } from './lib/paths.js'
+import { prisma } from './lib/prisma.js'
+import { setNotificationServer } from './lib/notify.js'
 import { authRouter } from './routes/auth.js'
 import { usersRouter } from './routes/users.js'
 import { machinesRouter } from './routes/machines.js'
@@ -20,16 +22,21 @@ import { maintenanceRouter } from './routes/maintenance.js'
 import { serviceRecordsRouter } from './routes/serviceRecords.js'
 import { activityLogsRouter } from './routes/activityLogs.js'
 import { notificationsRouter } from './routes/notifications.js'
-import { bambuddyRouter, startBamBuddySync } from './routes/bambuddy.js'
+import { bambuddyRouter, startBamBuddySync, stopBamBuddySync } from './routes/bambuddy.js'
 import { setupSocket } from './socket/index.js'
-import { startAutoHourTracking } from './jobs/autoHourTracking.js'
-import { startClaimExpiry } from './jobs/claimExpiry.js'
-import { startUptimeMonitoring } from './jobs/uptimeMonitoring.js'
+import { startAutoHourTracking, stopAutoHourTracking } from './jobs/autoHourTracking.js'
+import { startClaimExpiry, stopClaimExpiry } from './jobs/claimExpiry.js'
+import { startUptimeMonitoring, stopUptimeMonitoring } from './jobs/uptimeMonitoring.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const app = express()
+
+// Which proxies' X-Forwarded-* headers to believe (client IP for rate limiting).
+// Default: a reverse proxy on this host, i.e. the documented nginx setup.
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY))
+
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
   cors: {
@@ -37,6 +44,15 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST'],
   },
 })
+setNotificationServer(io)
+
+function parseTrustProxy(value: string | undefined): boolean | number | string {
+  if (value === undefined || value === '') return 'loopback'
+  if (value === 'true') return true
+  if (value === 'false') return false
+  if (/^\d+$/.test(value)) return parseInt(value, 10)
+  return value
+}
 
 // Middleware
 app.use(cors())
@@ -136,5 +152,28 @@ httpServer.listen(PORT, () => {
   startUptimeMonitoring(io)
   startBamBuddySync()
 })
+
+// Graceful shutdown (systemd stop / Ctrl-C): stop timers, close sockets and the
+// HTTP listener, then disconnect from the database.
+let shuttingDown = false
+function shutdown(signal: string) {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`${signal} received, shutting down...`)
+
+  stopAutoHourTracking()
+  stopClaimExpiry()
+  stopUptimeMonitoring()
+  stopBamBuddySync()
+
+  // io.close() also closes the underlying HTTP server
+  io.close(() => {
+    prisma.$disconnect().finally(() => process.exit(0))
+  })
+  // Never hang on a stuck connection
+  setTimeout(() => process.exit(0), 5000).unref()
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 export { io }

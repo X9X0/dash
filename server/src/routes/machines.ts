@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { z } from 'zod'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -9,6 +9,8 @@ import { authenticate, requireAdmin, requireOperator, AuthRequest } from '../mid
 import { upload } from '../middleware/upload.js'
 import { round2 } from '../lib/hours.js'
 import { pingHost, isSafeHostTarget } from '../lib/ping.js'
+import { isForeignKeyError, isNotFoundError, parseDate } from '../lib/errors.js'
+import { UPLOAD_REF, parseAttachmentList, parseRefList, removeUploadedFiles, requestUploads } from '../lib/files.js'
 
 // External commands are run with execFile (argument array, no shell) and only
 // ever receive targets that passed isSafeHostTarget(). Hostnames here can come
@@ -350,7 +352,6 @@ function getCachedPing(target: string): PingCacheEntry | null {
   return null
 }
 const router = Router()
-const prisma = new PrismaClient()
 
 const addIPSchema = z.object({
   label: z.string().trim().min(1),
@@ -505,7 +506,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
         icon: data.icon || null,
         notes: data.notes || null,
         statusNote: data.statusNote || null,
-        autoHourTracking: data.autoHourTracking ?? true,
+        autoHourTracking: data.autoHourTracking ?? false,
         monitorUptime: data.monitorUptime ?? false,
         checkIntervalMinutes: data.checkIntervalMinutes ?? 5,
         offlineThreshold: data.offlineThreshold ?? 1,
@@ -584,6 +585,9 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Update machine error:', error)
     res.status(500).json({ error: 'Failed to update machine' })
   }
@@ -634,6 +638,9 @@ router.patch('/:id/status', authenticate, requireOperator, async (req: AuthReque
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Update status error:', error)
     res.status(500).json({ error: 'Failed to update status' })
   }
@@ -645,37 +652,48 @@ router.post('/:id/hours', authenticate, requireOperator, async (req: AuthRequest
     const id = req.params.id as string
     const { hours: rawHours, date, notes } = addHoursSchema.parse(req.body)
     const hours = round2(rawHours)
+    const entryDate = date ? parseDate(date) : new Date()
+    if (!entryDate) {
+      return res.status(400).json({ error: 'Invalid date' })
+    }
 
-    // Create hour entry
-    const hourEntry = await prisma.hourEntry.create({
-      data: {
-        machineId: id,
-        userId: req.user!.id,
-        hours,
-        date: date ? new Date(date) : new Date(),
-        notes: notes || null,
-      },
+    // Read-modify-write of the meter happens inside one transaction so two
+    // concurrent submissions cannot lose each other's hours.
+    const hourEntry = await prisma.$transaction(async (tx) => {
+      const machine = await tx.machine.findUnique({ where: { id }, select: { hourMeter: true } })
+      if (!machine) return null
+
+      const entry = await tx.hourEntry.create({
+        data: {
+          machineId: id,
+          userId: req.user!.id,
+          hours,
+          date: entryDate,
+          notes: notes || null,
+        },
+      })
+
+      // Round the resulting total to hundredths
+      await tx.machine.update({
+        where: { id },
+        data: { hourMeter: round2(machine.hourMeter + hours) },
+      })
+
+      await tx.activityLog.create({
+        data: {
+          machineId: id,
+          userId: req.user!.id,
+          action: 'hours_logged',
+          details: `Logged ${hours} hours`,
+        },
+      })
+
+      return entry
     })
 
-    // Update machine hour meter (round the resulting total to hundredths)
-    const existing = await prisma.machine.findUnique({
-      where: { id },
-      select: { hourMeter: true },
-    })
-    await prisma.machine.update({
-      where: { id },
-      data: { hourMeter: round2((existing?.hourMeter ?? 0) + hours) },
-    })
-
-    // Log activity
-    await prisma.activityLog.create({
-      data: {
-        machineId: id,
-        userId: req.user!.id,
-        action: 'hours_logged',
-        details: `Logged ${hours} hours`,
-      },
-    })
+    if (!hourEntry) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
 
     res.status(201).json(hourEntry)
   } catch (error) {
@@ -707,6 +725,9 @@ router.patch('/:id/status-note', authenticate, requireOperator, async (req: Auth
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
     }
     console.error('Update status note error:', error)
     res.status(500).json({ error: 'Failed to update status note' })
@@ -755,6 +776,9 @@ router.patch('/:id/condition', authenticate, requireOperator, async (req: AuthRe
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Update condition error:', error)
     res.status(500).json({ error: 'Failed to update condition' })
   }
@@ -787,12 +811,12 @@ router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
     // Parse photos and attachments JSON for service records
     const parsedServiceRecords = serviceRecords.map((r) => ({
       ...r,
-      photos: r.photos ? JSON.parse(r.photos) : [],
-      attachments: r.attachments ? JSON.parse(r.attachments) : [],
+      photos: parseRefList(r.photos),
+      attachments: parseAttachmentList(r.attachments),
     }))
     const parsedMaintenanceRequests = maintenanceRequests.map((r) => ({
       ...r,
-      photos: r.photos ? JSON.parse(r.photos as string) : [],
+      photos: parseRefList(r.photos),
     }))
 
     res.json({ serviceRecords: parsedServiceRecords, maintenanceRequests: parsedMaintenanceRequests, statusLogs })
@@ -806,7 +830,7 @@ router.get('/:id/timeline', authenticate, async (req: AuthRequest, res) => {
 router.get('/:id/uptime', authenticate, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
-    const days = req.query.days ? Math.max(1, parseInt(req.query.days as string, 10)) : 7
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days as string, 10) || 7))
     const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
     const machine = await prisma.machine.findUnique({
@@ -879,9 +903,39 @@ router.get('/:id/uptime', authenticate, async (req: AuthRequest, res) => {
 router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
+
+    // Collect every uploaded file the cascade delete is about to orphan.
+    const machine = await prisma.machine.findUnique({
+      where: { id },
+      select: {
+        attachments: { select: { filename: true } },
+        serviceRecords: { select: { photos: true, attachments: true } },
+        maintenance: { select: { photos: true, updates: { select: { photos: true } } } },
+      },
+    })
+    if (!machine) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
+    const files = [
+      ...machine.attachments.map((a) => a.filename),
+      ...machine.serviceRecords.flatMap((r) => [
+        ...parseRefList(r.photos),
+        ...parseAttachmentList(r.attachments).map((a) => a.filename),
+      ]),
+      ...machine.maintenance.flatMap((m) => [
+        ...parseRefList(m.photos),
+        ...m.updates.flatMap((u) => parseRefList(u.photos)),
+      ]),
+    ]
+
     await prisma.machine.delete({ where: { id } })
+    await removeUploadedFiles(files)
+
     res.json({ success: true })
   } catch (error) {
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Delete machine error:', error)
     res.status(500).json({ error: 'Failed to delete machine' })
   }
@@ -899,8 +953,8 @@ router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) =
     // Parse photos and attachments JSON
     const parsedRecords = records.map((record) => ({
       ...record,
-      photos: record.photos ? JSON.parse(record.photos) : [],
-      attachments: record.attachments ? JSON.parse(record.attachments) : [],
+      photos: parseRefList(record.photos),
+      attachments: parseAttachmentList(record.attachments),
     }))
     res.json(parsedRecords)
   } catch (error) {
@@ -909,21 +963,38 @@ router.get('/:id/service-history', authenticate, async (req: AuthRequest, res) =
   }
 })
 
+// Service record fields arrive as multipart form strings
+const createServiceRecordSchema = z.object({
+  type: z.enum(['repair', 'upgrade', 'modification', 'calibration']),
+  description: z.string().trim().min(1, 'Description is required'),
+  partsUsed: z.string().optional(),
+  cost: z.string().optional(),
+  performedBy: z.string().trim().min(1, 'Performed by is required'),
+  performedAt: z.string().min(1, 'Date is required'),
+  notes: z.string().optional(),
+  // Optional JSON array of existing upload references to attach as photos
+  photos: z.string().optional(),
+})
+
 // Add service record
 router.post('/:id/service-history', authenticate, requireOperator, upload.fields([{ name: 'photos', maxCount: 5 }, { name: 'attachments', maxCount: 10 }]), async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
-    const data = req.body
+    const data = createServiceRecordSchema.parse(req.body)
+
+    const performedAt = parseDate(data.performedAt)
+    if (!performedAt) {
+      await removeUploadedFiles(requestUploads(req))
+      return res.status(400).json({ error: 'Invalid date' })
+    }
+    const cost = data.cost ? parseFloat(data.cost) : NaN
 
     // Handle photo uploads
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined
     const photoPaths = files?.photos?.map((f) => `/uploads/${f.filename}`) || []
-    // Also accept JSON photo paths from body (for backward compatibility)
-    if (data.photos && typeof data.photos === 'string') {
-      try {
-        const parsed = JSON.parse(data.photos)
-        if (Array.isArray(parsed)) photoPaths.push(...parsed)
-      } catch { /* not JSON */ }
+    // Also accept existing upload references from the body (only our own /uploads paths)
+    if (data.photos) {
+      photoPaths.push(...parseRefList(data.photos).filter((p) => UPLOAD_REF.test(p)))
     }
 
     // Handle general file attachments
@@ -940,9 +1011,9 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.fields
         type: data.type,
         description: data.description,
         partsUsed: data.partsUsed || null,
-        cost: data.cost ? parseFloat(data.cost) : null,
+        cost: isNaN(cost) ? null : cost,
         performedBy: data.performedBy,
-        performedAt: new Date(data.performedAt),
+        performedAt,
         notes: data.notes || null,
         photos: photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
         attachments: attachments.length > 0 ? JSON.stringify(attachments) : null,
@@ -962,10 +1033,18 @@ router.post('/:id/service-history', authenticate, requireOperator, upload.fields
 
     res.status(201).json({
       ...record,
-      photos: record.photos ? JSON.parse(record.photos) : [],
-      attachments: record.attachments ? JSON.parse(record.attachments) : [],
+      photos: photoPaths,
+      attachments,
     })
   } catch (error) {
+    // Rejected request: the files multer already saved would be orphans.
+    await removeUploadedFiles(requestUploads(req))
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isForeignKeyError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Add service record error:', error)
     res.status(500).json({ error: 'Failed to add service record' })
   }
@@ -1010,13 +1089,17 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
     const now = new Date()
     const expiresAt = new Date(now.getTime() + duration * 60 * 1000)
 
+    // Only an available machine becomes in_use; one in maintenance/offline
+    // keeps that status (the claim is still recorded).
+    const status = machine.status === 'available' ? 'in_use' : machine.status
+
     const updated = await prisma.machine.update({
       where: { id },
       data: {
         claimedById: claimingUserId,
         claimedAt: now,
         claimExpiresAt: expiresAt,
-        status: 'in_use',
+        status,
       },
       include: {
         type: true,
@@ -1026,7 +1109,7 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
 
     // Log status change
     await prisma.machineStatusLog.create({
-      data: { machineId: id, userId: claimingUserId, status: 'in_use', source: 'claim' },
+      data: { machineId: id, userId: claimingUserId, status, source: 'claim' },
     })
 
     // Log activity
@@ -1042,7 +1125,14 @@ router.patch('/:id/claim', authenticate, requireOperator, async (req: AuthReques
     })
 
     const io = req.app.get('io')
-    io.emit('machine:claimed', { machineId: id, claimedBy: updated.claimedBy, expiresAt: expiresAt.toISOString() })
+    io.emit('machine:claimed', {
+      machineId: id,
+      claimedById: claimingUserId,
+      claimedBy: updated.claimedBy,
+      claimedAt: now.toISOString(),
+      claimExpiresAt: expiresAt.toISOString(),
+      status: updated.status,
+    })
 
     res.json(updated)
   } catch (error) {
@@ -1069,13 +1159,17 @@ router.patch('/:id/release', authenticate, requireOperator, async (req: AuthRequ
       return res.status(403).json({ error: 'Only the claimer or an admin can release this machine' })
     }
 
+    // Undo only what claiming did: in_use -> available. A machine moved to
+    // maintenance/offline while claimed stays there.
+    const status = machine.status === 'in_use' ? 'available' : machine.status
+
     const updated = await prisma.machine.update({
       where: { id },
       data: {
         claimedById: null,
         claimedAt: null,
         claimExpiresAt: null,
-        status: 'available',
+        status,
       },
       include: {
         type: true,
@@ -1085,7 +1179,7 @@ router.patch('/:id/release', authenticate, requireOperator, async (req: AuthRequ
 
     // Log status change
     await prisma.machineStatusLog.create({
-      data: { machineId: id, userId: req.user!.id, status: 'available', source: 'release' },
+      data: { machineId: id, userId: req.user!.id, status, source: 'release' },
     })
 
     // Log activity
@@ -1099,7 +1193,7 @@ router.patch('/:id/release', authenticate, requireOperator, async (req: AuthRequ
     })
 
     const io = req.app.get('io')
-    io.emit('machine:released', { machineId: id })
+    io.emit('machine:released', { machineId: id, status: updated.status })
 
     res.json(updated)
   } catch (error) {
@@ -1116,6 +1210,12 @@ router.post('/:id/attachments', authenticate, requireOperator, upload.single('fi
 
     if (!file) {
       return res.status(400).json({ error: 'No file uploaded' })
+    }
+
+    const machineExists = (await prisma.machine.count({ where: { id } })) > 0
+    if (!machineExists) {
+      await removeUploadedFiles([file.filename])
+      return res.status(404).json({ error: 'Machine not found' })
     }
 
     const attachment = await prisma.machineAttachment.create({
@@ -1173,6 +1273,7 @@ router.delete('/:id/attachments/:attachmentId', authenticate, requireOperator, a
     }
 
     await prisma.machineAttachment.delete({ where: { id: attachmentId } })
+    await removeUploadedFiles([attachment.filename])
     res.json({ success: true })
   } catch (error) {
     console.error('Delete attachment error:', error)
@@ -1199,6 +1300,9 @@ router.post('/:id/ips', authenticate, requireAdmin, async (req: AuthRequest, res
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
+    if (isForeignKeyError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Add IP error:', error)
     res.status(500).json({ error: 'Failed to add IP address' })
   }
@@ -1217,6 +1321,12 @@ router.patch('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthReque
 
     res.json(ip)
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'IP address not found' })
+    }
     console.error('Update IP error:', error)
     res.status(500).json({ error: 'Failed to update IP address' })
   }
@@ -1229,6 +1339,9 @@ router.delete('/:id/ips/:ipId', authenticate, requireAdmin, async (req: AuthRequ
     await prisma.machineIP.delete({ where: { id: ipId } })
     res.json({ success: true })
   } catch (error) {
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'IP address not found' })
+    }
     console.error('Delete IP error:', error)
     res.status(500).json({ error: 'Failed to delete IP address' })
   }
@@ -1248,27 +1361,41 @@ router.get('/:id/custom-fields', authenticate, async (req: AuthRequest, res) => 
   }
 })
 
-// Update custom fields for a machine (bulk upsert)
+const customFieldsSchema = z
+  .array(
+    z.object({
+      fieldName: z.string().trim().min(1).max(100),
+      fieldValue: z.string().max(2000),
+    })
+  )
+  .max(100)
+
+// Update custom fields for a machine (bulk replace)
 router.put('/:id/custom-fields', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
-    const fields = req.body as Array<{ fieldName: string; fieldValue: string }>
+    const fields = customFieldsSchema.parse(req.body)
 
-    // Delete existing custom fields for this machine
-    await prisma.machineCustomField.deleteMany({
-      where: { machineId: id },
-    })
-
-    // Create new custom fields
-    if (fields && fields.length > 0) {
-      await prisma.machineCustomField.createMany({
-        data: fields.map((field) => ({
-          machineId: id,
-          fieldName: field.fieldName,
-          fieldValue: field.fieldValue,
-        })),
-      })
+    const machineExists = (await prisma.machine.count({ where: { id } })) > 0
+    if (!machineExists) {
+      return res.status(404).json({ error: 'Machine not found' })
     }
+
+    // Replace atomically so a failure cannot leave the machine with no fields
+    await prisma.$transaction([
+      prisma.machineCustomField.deleteMany({ where: { machineId: id } }),
+      ...(fields.length > 0
+        ? [
+            prisma.machineCustomField.createMany({
+              data: fields.map((field) => ({
+                machineId: id,
+                fieldName: field.fieldName,
+                fieldValue: field.fieldValue,
+              })),
+            }),
+          ]
+        : []),
+    ])
 
     // Return updated custom fields
     const customFields = await prisma.machineCustomField.findMany({
@@ -1277,6 +1404,9 @@ router.put('/:id/custom-fields', authenticate, requireAdmin, async (req: AuthReq
 
     res.json(customFields)
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Custom fields must be a list of { fieldName, fieldValue }' })
+    }
     console.error('Update custom fields error:', error)
     res.status(500).json({ error: 'Failed to update custom fields' })
   }

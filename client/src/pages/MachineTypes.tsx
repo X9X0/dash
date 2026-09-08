@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/common'
 import { useAuthStore } from '@/store/authStore'
+import { machineService } from '@/services/machines'
 import api from '@/services/api'
 import type { MachineType, MachineCategory } from '@/types'
 
@@ -33,21 +34,18 @@ const categoryIcons: Record<MachineCategory, React.ReactNode> = {
 
 export function MachineTypes() {
   const { user } = useAuthStore()
+  const isAdmin = user?.role === 'admin'
   const [types, setTypes] = useState<MachineType[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [showDialog, setShowDialog] = useState(false)
   const [editingType, setEditingType] = useState<MachineType | null>(null)
 
-  if (user?.role !== 'admin') {
-    return <Navigate to="/dashboard" />
-  }
-
   useEffect(() => {
+    if (!isAdmin) return
     const fetchTypes = async () => {
       try {
-        const { data } = await api.get<MachineType[]>('/machine-types')
-        setTypes(data)
+        setTypes(await machineService.getTypes())
       } catch (error) {
         console.error('Failed to fetch machine types:', error)
       } finally {
@@ -55,7 +53,7 @@ export function MachineTypes() {
       }
     }
     fetchTypes()
-  }, [])
+  }, [isAdmin])
 
   const filteredTypes = types.filter((type) =>
     type.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -63,9 +61,9 @@ export function MachineTypes() {
 
   const handleTypeSaved = (type: MachineType) => {
     if (editingType) {
-      setTypes(types.map((t) => (t.id === type.id ? type : t)))
+      setTypes((prev) => prev.map((t) => (t.id === type.id ? type : t)))
     } else {
-      setTypes([...types, type])
+      setTypes((prev) => [...prev, type])
     }
     setEditingType(null)
   }
@@ -79,11 +77,16 @@ export function MachineTypes() {
     if (!confirm('Are you sure you want to delete this machine type?')) return
     try {
       await api.delete(`/machine-types/${typeId}`)
-      setTypes(types.filter((t) => t.id !== typeId))
+      setTypes((prev) => prev.filter((t) => t.id !== typeId))
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: string } } }
       alert(error.response?.data?.error || 'Failed to delete machine type')
     }
+  }
+
+  // Only admins can access this page (checked after all hooks have run)
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />
   }
 
   if (loading) {

@@ -22,15 +22,19 @@ function getTransporter(): Transporter | null {
 
   const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587
   const secure = process.env.SMTP_SECURE === 'true'
+  // With secure=false nodemailer upgrades via STARTTLS only if the server offers
+  // it; SMTP_REQUIRE_TLS=true refuses to send credentials over plaintext instead.
+  const requireTLS = process.env.SMTP_REQUIRE_TLS === 'true'
 
   transporter = nodemailer.createTransport({
     host,
     port,
     secure,
+    requireTLS,
     auth: { user, pass },
   })
 
-  console.log(`[Mailer] SMTP configured (${host}:${port}, secure=${secure}).`)
+  console.log(`[Mailer] SMTP configured (${host}:${port}, secure=${secure}, requireTLS=${requireTLS}).`)
   return transporter
 }
 

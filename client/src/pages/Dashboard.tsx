@@ -10,35 +10,13 @@ import { maintenanceService } from '@/services/maintenance'
 import api from '@/services/api'
 import { bambuddyService } from '@/services/bambuddy'
 import { useDashboardStore } from '@/store/dashboardStore'
-import type { Reservation, MaintenanceRequest } from '@/types'
+import { formatCountdown, categoryOrder, canClaim, canRelease } from '@/lib/machines'
+import type { Reservation, MaintenanceRequest, PingStatus } from '@/types'
 import type { BamBuddyPrinterStatus, BamBuddyQueueItem } from '@/types/bambuddy'
-import { format, isToday, parseISO, differenceInSeconds } from 'date-fns'
-
-function formatCountdown(expiresAt: string): string {
-  const now = new Date()
-  const expires = parseISO(expiresAt)
-  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
-
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-  }
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
-
-interface PingStatus {
-  machineId: string
-  reachable: boolean | null
-  hostnameReachable: boolean | null
-  resolvedIP: string | null
-  resolvedHostname: string | null
-}
+import { format, isToday } from 'date-fns'
 
 export function Dashboard() {
-  const { machines, setMachines, setLoading } = useMachineStore()
+  const { machines, setMachines, updateMachine, isLoading, setLoading } = useMachineStore()
   const { user } = useAuthStore()
   const [todayReservations, setTodayReservations] = useState<Reservation[]>([])
   const [pendingMaintenance, setPendingMaintenance] = useState<MaintenanceRequest[]>([])
@@ -69,7 +47,6 @@ export function Dashboard() {
     return () => clearInterval(interval)
   }, [machines])
 
-  const isOperator = user?.role === 'admin' || user?.role === 'operator'
   const isAdmin = user?.role === 'admin'
 
   const handleClaim = async (e: React.MouseEvent, machineId: string) => {
@@ -78,7 +55,7 @@ export function Dashboard() {
     setClaimingMachineId(machineId)
     try {
       const updated = await machineService.claimMachine(machineId, 60)
-      setMachines(machines.map((m) => (m.id === machineId ? updated : m)))
+      updateMachine(machineId, updated)
     } catch (error) {
       console.error('Failed to claim machine:', error)
     } finally {
@@ -92,13 +69,18 @@ export function Dashboard() {
     setReleasingMachineId(machineId)
     try {
       const updated = await machineService.releaseMachine(machineId)
-      setMachines(machines.map((m) => (m.id === machineId ? updated : m)))
+      updateMachine(machineId, updated)
     } catch (error) {
       console.error('Failed to release machine:', error)
     } finally {
       setReleasingMachineId(null)
     }
   }
+
+  // BamBuddy availability is configuration; fetch it once rather than every poll
+  useEffect(() => {
+    bambuddyService.getConfig().then((config) => setBbAvailable(config.available)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     const fetchPing = async () => {
@@ -140,10 +122,9 @@ export function Dashboard() {
 
     const fetchBamBuddy = async () => {
       try {
-        const [statuses, queue, config] = await Promise.all([
+        const [statuses, queue] = await Promise.all([
           bambuddyService.getAllStatuses(),
           bambuddyService.getQueue(),
-          bambuddyService.getConfig(),
         ])
         const map: Record<string, BamBuddyPrinterStatus> = {}
         statuses.forEach((s) => {
@@ -151,7 +132,6 @@ export function Dashboard() {
         })
         setBbStatuses(map)
         setBbQueue(queue.filter((q) => q.status === 'pending' || q.status === 'printing'))
-        setBbAvailable(config.available)
       } catch {
         // BamBuddy unavailable — gracefully ignore
       }
@@ -188,8 +168,7 @@ export function Dashboard() {
       if (result.offlined.length) parts.push(`Offlined: ${result.offlined.join(', ')}`)
       setSyncMessage(parts.length > 0 ? parts.join(' | ') : 'All printers in sync')
       // Refresh machine list to reflect changes
-      const { data } = await api.get('/machines')
-      setMachines(data)
+      setMachines(await machineService.getAll())
     } catch {
       setSyncMessage('Sync failed')
     } finally {
@@ -202,17 +181,6 @@ export function Dashboard() {
   const readyCount = machines.filter((m) =>
     m.status === 'available' && pingStatus[m.id]?.reachable === true
   ).length
-
-  // Define category order for sorting
-  const categoryOrder: Record<string, number> = {
-    'Biped Humanoid': 1,
-    'Wheeled Humanoid': 2,
-    'Robot Arm': 3,
-    'Testbench': 4,
-    'FDM Printer': 5,
-    'SLA/Resin Printer': 6,
-    'SLS Printer': 7,
-  }
 
   // Sort machines by category order
   const sortedMachines = [...machines].sort((a, b) => {
@@ -373,8 +341,8 @@ export function Dashboard() {
                 const resolvedIP = status?.resolvedIP
                 const isHostnameReachable = status?.hostnameReachable
                 const conditionText = getConditionText()
-                const canClaimThis = isOperator && !machine.claimedById && machine.status === 'available'
-                const canReleaseThis = isOperator && machine.claimedById && (machine.claimedById === user?.id || isAdmin)
+                const canClaimThis = canClaim(machine, user)
+                const canReleaseThis = canRelease(machine, user)
 
                 return (
                   <Link
@@ -524,9 +492,15 @@ export function Dashboard() {
               })}
             </div>
             {machines.length === 0 && (
-              <p className="text-center text-muted-foreground py-8">
-                No machines added yet
-              </p>
+              isLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <p className="text-center text-muted-foreground py-8">
+                  No machines added yet
+                </p>
+              )
             )}
           </CardContent>
         </Card>
