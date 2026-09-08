@@ -9,7 +9,7 @@ const createTypeSchema = z.object({
   name: z.string().min(1),
   category: z.enum(['robot', 'printer', 'server', 'computer', 'cnc', 'electronics', 'networking', 'display', 'vehicle']),
   icon: z.string().optional(),
-  fieldsSchema: z.record(z.any()).optional(),
+  fieldsSchema: z.record(z.string(), z.any()).optional(),
 })
 
 // Get all machine types
@@ -52,7 +52,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Create machine type error:', error)
     res.status(500).json({ error: 'Failed to create machine type' })
@@ -81,7 +81,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) =
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Update machine type error:', error)
     res.status(500).json({ error: 'Failed to update machine type' })

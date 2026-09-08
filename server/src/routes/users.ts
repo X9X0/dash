@@ -45,7 +45,7 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
     res.status(201).json(user)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isUniqueViolation(error)) {
       return res.status(400).json({ error: 'Email already in use' })
@@ -140,7 +140,7 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
     res.json(user)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     if (isUniqueViolation(error)) {
       return res.status(400).json({ error: 'Email already in use' })

@@ -143,7 +143,7 @@ router.patch('/:id', authenticate, requireOperator, upload.fields([{ name: 'phot
   } catch (error) {
     await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message })
+      return res.status(400).json({ error: error.issues[0].message })
     }
     console.error('Update service record error:', error)
     res.status(500).json({ error: 'Failed to update service record' })

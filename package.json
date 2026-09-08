@@ -7,6 +7,9 @@
     "client",
     "server"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "npm run dev --workspace=client",
@@ -22,9 +25,6 @@
     "lint": "npm run lint --workspace=client"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
-  },
-  "overrides": {
-    "@types/express": "^4.17.21"
+    "concurrently": "^9.2.1"
   }
 }

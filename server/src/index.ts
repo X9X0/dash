@@ -99,8 +99,9 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// Unknown API routes get a JSON 404 rather than the SPA's index.html
-app.all('/api/*', (req, res) => {
+// Unknown API routes get a JSON 404 rather than the SPA's index.html.
+// (Express 5 path syntax: wildcards must be named, e.g. {*splat}.)
+app.all('/api/{*splat}', (req, res) => {
   res.status(404).json({ error: 'Not found' })
 })
 
@@ -110,7 +111,7 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(clientDistPath))
 
   // Handle React routing - serve index.html for all non-API routes
-  app.get('*', (req, res) => {
+  app.get('/{*splat}', (req, res) => {
     res.sendFile(join(clientDistPath, 'index.html'))
   })
 }

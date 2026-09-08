@@ -65,7 +65,7 @@ export function AddJobDialog({
     }
   }, [editingJob, open])
 
-  const resetForm = () => {
+  function resetForm() {
     setFormData({
       machineId: machines[0]?.id || '',
       name: '',

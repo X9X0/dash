@@ -13,6 +13,6 @@ import { dirname, resolve } from 'path'
 // directory is the project root, where no .env exists. Variables already present
 // in the environment (e.g. systemd's NODE_ENV) are never overridden.
 const here = dirname(fileURLToPath(import.meta.url))
-dotenv.config({ path: resolve(here, '../../.env') })
+dotenv.config({ path: resolve(here, '../../.env'), quiet: true })
 // Backwards compatibility: also honour a .env in the working directory.
-dotenv.config()
+dotenv.config({ quiet: true })

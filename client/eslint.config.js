@@ -19,6 +19,10 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Compiler heuristic (eslint-plugin-react-hooks >= 6): flags setState
+      // called synchronously inside an effect. Our uses are intentional resets
+      // when dialogs open / ids change; surface them without failing the build.
+      'react-hooks/set-state-in-effect': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   }

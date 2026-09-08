@@ -289,7 +289,7 @@ export function MachineDetail() {
     }
   }, [id, isAdmin])
 
-  const fetchUsers = async () => {
+  async function fetchUsers() {
     try {
       const allUsers = await userService.getAll()
       setUsers(allUsers.map(u => ({ id: u.id, name: u.name })))
@@ -298,7 +298,7 @@ export function MachineDetail() {
     }
   }
 
-  const fetchUptime = async () => {
+  async function fetchUptime() {
     const targetId = id
     if (!targetId) return
     try {
@@ -309,7 +309,7 @@ export function MachineDetail() {
     }
   }
 
-  const fetchBamBuddyData = async () => {
+  async function fetchBamBuddyData() {
     const targetId = id
     if (!targetId) return
     try {
@@ -426,7 +426,7 @@ export function MachineDetail() {
     }
   }
 
-  const fetchMachine = async () => {
+  async function fetchMachine() {
     const targetId = id
     if (!targetId) return
     try {
@@ -443,7 +443,7 @@ export function MachineDetail() {
     }
   }
 
-  const fetchTimeline = async () => {
+  async function fetchTimeline() {
     const targetId = id
     if (!targetId) return
     try {
@@ -460,7 +460,7 @@ export function MachineDetail() {
     }
   }
 
-  const fetchAttachments = async () => {
+  async function fetchAttachments() {
     const targetId = id
     if (!targetId) return
     try {
