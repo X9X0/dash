@@ -23,31 +23,38 @@ const notificationIcons: Record<string, React.ReactNode> = {
 }
 
 export function Notifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const { setNotifications: setStoreNotifications, markAsRead: storeMarkAsRead, markAllAsRead: storeMarkAllAsRead } = useNotificationStore()
+  // Render straight from the store so notifications pushed over the socket
+  // appear without a reload.
+  const notifications = useNotificationStore((s) => s.notifications)
+  const setStoreNotifications = useNotificationStore((s) => s.setNotifications)
+  const storeMarkAsRead = useNotificationStore((s) => s.markAsRead)
+  const storeMarkAllAsRead = useNotificationStore((s) => s.markAllAsRead)
+  const removeNotification = useNotificationStore((s) => s.removeNotification)
 
   useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        const data = await notificationService.getAll()
-        setNotifications(data)
-        setStoreNotifications(data)
-      } catch (error) {
+    let cancelled = false
+    notificationService
+      .getAll()
+      .then((data) => {
+        if (!cancelled) setStoreNotifications(data)
+      })
+      .catch((error) => {
         console.error('Failed to fetch notifications:', error)
-      } finally {
-        setLoading(false)
-      }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-    fetchNotifications()
   }, [setStoreNotifications])
 
   const handleMarkAsRead = async (id: string) => {
     setActionLoading(id)
     try {
-      const updated = await notificationService.markAsRead(id)
-      setNotifications(notifications.map((n) => (n.id === id ? updated : n)))
+      await notificationService.markAsRead(id)
       storeMarkAsRead(id)
     } catch (error) {
       console.error('Failed to mark as read:', error)
@@ -60,7 +67,6 @@ export function Notifications() {
     setActionLoading('all')
     try {
       await notificationService.markAllAsRead()
-      setNotifications(notifications.map((n) => ({ ...n, read: true })))
       storeMarkAllAsRead()
     } catch (error) {
       console.error('Failed to mark all as read:', error)
@@ -73,10 +79,7 @@ export function Notifications() {
     setActionLoading(id)
     try {
       await notificationService.delete(id)
-      const updatedNotifications = notifications.filter((n) => n.id !== id)
-      setNotifications(updatedNotifications)
-      // Update store to recalculate unread count
-      setStoreNotifications(updatedNotifications)
+      removeNotification(id)
     } catch (error) {
       console.error('Failed to delete notification:', error)
     } finally {

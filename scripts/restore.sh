@@ -95,7 +95,7 @@ log_info "Restoring from: $BACKUP_FILE"
 
 # Create temp directory for extraction
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 # Extract backup based on file type
 log_info "Extracting backup..."
@@ -161,9 +161,9 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Stop service if running
+# Stop service if running (list-unit-files also finds inactive units)
 SERVICE_WAS_RUNNING=0
-if systemctl list-units --type=service | grep -q "dash.service"; then
+if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^dash.service'; then
     if $SUDO systemctl is-active --quiet dash; then
         log_info "Stopping Dash service..."
         $SUDO systemctl stop dash
@@ -174,19 +174,44 @@ fi
 
 # Create data directory if it doesn't exist
 mkdir -p "$DATA_DIR"
-mkdir -p "$DATA_DIR/uploads"
 
 # Restore database
 if [ -f "$BACKUP_CONTENT_DIR/dash.db" ]; then
     log_info "Restoring database..."
+    DB_PATH="$DATA_DIR/dash.db"
 
-    # Backup current database just in case
-    if [ -f "$DATA_DIR/dash.db" ]; then
-        cp "$DATA_DIR/dash.db" "$DATA_DIR/dash.db.pre-restore"
+    # Backup current database just in case. Prefer sqlite3's online backup so
+    # the copy is consistent even if a journal/WAL is present; fall back to cp.
+    if [ -f "$DB_PATH" ]; then
+        if command -v sqlite3 &> /dev/null; then
+            sqlite3 "$DB_PATH" ".backup '$DB_PATH.pre-restore'"
+        else
+            cp "$DB_PATH" "$DB_PATH.pre-restore"
+        fi
         log_info "Current database backed up to dash.db.pre-restore"
     fi
 
-    cp "$BACKUP_CONTENT_DIR/dash.db" "$DATA_DIR/dash.db"
+    # Remove stale SQLite sidecar files. A leftover dash.db-journal or
+    # dash.db-wal from the OLD database would otherwise be replayed/rolled back
+    # into the freshly restored file and corrupt it.
+    for SIDECAR in journal wal shm; do
+        if [ -f "$DB_PATH-$SIDECAR" ]; then
+            log_info "Removing stale $DB_PATH-$SIDECAR"
+            rm -f "$DB_PATH-$SIDECAR"
+        fi
+    done
+
+    cp "$BACKUP_CONTENT_DIR/dash.db" "$DB_PATH"
+
+    # If the backup was taken with a plain copy while the DB was live, it may
+    # carry its own sidecars; restore them alongside so SQLite can recover.
+    for SIDECAR in wal journal; do
+        if [ -f "$BACKUP_CONTENT_DIR/dash.db-$SIDECAR" ]; then
+            log_info "Restoring database sidecar dash.db-$SIDECAR from backup"
+            cp "$BACKUP_CONTENT_DIR/dash.db-$SIDECAR" "$DB_PATH-$SIDECAR"
+        fi
+    done
+
     log_success "Database restored"
 else
     log_warn "No database found in backup"
@@ -196,14 +221,30 @@ fi
 if [ -d "$BACKUP_CONTENT_DIR/uploads" ]; then
     log_info "Restoring uploads..."
 
-    # Backup current uploads
-    if [ -d "$DATA_DIR/uploads" ] && [ "$(ls -A "$DATA_DIR/uploads" 2>/dev/null)" ]; then
-        mv "$DATA_DIR/uploads" "$DATA_DIR/uploads.pre-restore"
-        log_info "Current uploads backed up to uploads.pre-restore"
+    if [ -d "$DATA_DIR/uploads" ]; then
+        if [ "$(ls -A "$DATA_DIR/uploads" 2>/dev/null)" ]; then
+            # Keep one safety copy. Remove the previous one first, otherwise
+            # `mv` would nest it as uploads.pre-restore/uploads on a repeat run.
+            if [ -e "$DATA_DIR/uploads.pre-restore" ]; then
+                log_info "Replacing uploads.pre-restore from a previous restore"
+                rm -rf "$DATA_DIR/uploads.pre-restore"
+            fi
+            mv "$DATA_DIR/uploads" "$DATA_DIR/uploads.pre-restore"
+            log_info "Current uploads backed up to uploads.pre-restore"
+        else
+            # Empty directory: `cp -r src dest` would copy INTO it and produce
+            # uploads/uploads, so drop it and recreate below.
+            rmdir "$DATA_DIR/uploads"
+        fi
     fi
 
-    cp -r "$BACKUP_CONTENT_DIR/uploads" "$DATA_DIR/uploads"
+    # Copy the CONTENTS of the backup's uploads dir (trailing /.) so the
+    # result is uploads/<files>, never uploads/uploads/<files>.
+    mkdir -p "$DATA_DIR/uploads"
+    cp -r "$BACKUP_CONTENT_DIR/uploads"/. "$DATA_DIR/uploads"/
     log_success "Uploads restored"
+else
+    mkdir -p "$DATA_DIR/uploads"
 fi
 
 # Restore configuration (optional)

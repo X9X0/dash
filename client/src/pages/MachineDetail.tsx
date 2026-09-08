@@ -34,22 +34,7 @@ import {
   Layers,
   Camera,
 } from 'lucide-react'
-import { format, parseISO, differenceInSeconds } from 'date-fns'
-
-function formatCountdown(expiresAt: string): string {
-  const now = new Date()
-  const expires = parseISO(expiresAt)
-  const totalSeconds = Math.max(0, differenceInSeconds(expires, now))
-
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-  }
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
+import { format, parseISO } from 'date-fns'
 import {
   Button,
   Card,
@@ -66,7 +51,10 @@ import {
   SelectValue,
 } from '@/components/common'
 import { machineService } from '@/services/machines'
+import { serviceRecordService } from '@/services/maintenance'
 import { formatHours } from '@/lib/utils'
+import { formatDateOnly } from '@/lib/dates'
+import { formatCountdown, canClaim, canRelease } from '@/lib/machines'
 import { userService } from '@/services/users'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
@@ -78,7 +66,7 @@ import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDi
 import { CustomFieldsCard } from '@/components/machines/CustomFieldsCard'
 import { MaintenanceRequestDialog } from '@/components/machines/MaintenanceRequestDialog'
 import { EditMaintenanceRequestDialog } from '@/components/machines/EditMaintenanceRequestDialog'
-import type { Machine, MachineStatus, MachineCondition, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment, UptimeData } from '@/types'
+import type { Machine, MachineIP, MachineStatus, MachineCondition, ServiceRecord, MachineStatusLog, MaintenanceRequest, MachineAttachment, UptimeData } from '@/types'
 
 interface MachineDetailData extends Machine {
   statusLogs?: MachineStatusLog[]
@@ -122,12 +110,6 @@ const conditionBadgeVariants: Record<string, 'success' | 'caution' | 'destructiv
   functional: 'success',
   degraded: 'caution',
   broken: 'destructive',
-}
-
-function getPhotoUrl(path: string): string {
-  if (path.startsWith('http')) return path
-  // Use relative URL - works regardless of domain/port
-  return path
 }
 
 function isImageFile(fileType: string): boolean {
@@ -226,8 +208,11 @@ export function MachineDetail() {
     return () => clearInterval(interval)
   }, [uptime?.monitorUptime, uptime?.lastUptimeCheckAt, uptime?.checkIntervalMinutes])
 
-  // BamBuddy state
+  // BamBuddy state. `bbStatus` is the last successful status; `bbStatusStale`
+  // is set when a poll fails after a success, so the Print Status and Camera
+  // cards stay mounted with an indicator instead of disappearing.
   const [bbStatus, setBbStatus] = useState<BamBuddyPrinterStatus | null>(null)
+  const [bbStatusStale, setBbStatusStale] = useState(false)
   const [bbPrintLog, setBbPrintLog] = useState<BamBuddyPrintLogEntry[]>([])
   const [bbConfig, setBbConfig] = useState<BamBuddyConfig | null>(null)
   const [bbControlling, setBbControlling] = useState(false)
@@ -238,9 +223,32 @@ export function MachineDetail() {
   // Short-lived token embedded in <img> URLs (camera, thumbnails); refreshed periodically
   const [mediaToken, setMediaToken] = useState<string | null>(null)
   const snapshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const liveImgRef = useRef<HTMLImageElement | null>(null)
   const [bbMaintenance, setBbMaintenance] = useState<BamBuddyMaintenanceOverview | null>(null)
 
+  // The machine id whose data is currently wanted. Fetchers capture the id they
+  // were called for and drop their response if the route has moved on.
+  const activeIdRef = useRef<string | undefined>(id)
+  const isStale = (targetId: string) => activeIdRef.current !== targetId
+
   useEffect(() => {
+    activeIdRef.current = id
+
+    // Reset per-machine state so a previous machine's data never shows for this one
+    setMachine(null)
+    setPingResult(null)
+    setServiceRecords([])
+    setMaintenanceRequests([])
+    setAttachments([])
+    setUptime(null)
+    setBbStatus(null)
+    setBbStatusStale(false)
+    setBbPrintLog([])
+    setBbMaintenance(null)
+    setBbSnapshotUrl(null)
+    setBbCameraError(false)
+    setBbCameraLive(false)
+
     if (id) {
       fetchMachine()
       fetchTimeline()
@@ -252,11 +260,22 @@ export function MachineDetail() {
       fetchUsers()
     }
 
-    // Poll BamBuddy status every 10 seconds
+    // Poll BamBuddy status every 10 seconds. A failed poll keeps the last good
+    // status and flags it stale; only a never-successful status means "not linked".
     const bbInterval = setInterval(() => {
-      if (id) {
-        bambuddyService.getStatus(id).then((s) => setBbStatus(s)).catch(() => {})
-      }
+      if (!id) return
+      bambuddyService
+        .getStatus(id)
+        .then((s) => {
+          if (isStale(id)) return
+          if (s) {
+            setBbStatus(s)
+            setBbStatusStale(false)
+          } else {
+            setBbStatusStale(true)
+          }
+        })
+        .catch(() => {})
     }, 10000)
 
     // Poll uptime every 30s so the badge and next-check countdown stay current
@@ -280,24 +299,29 @@ export function MachineDetail() {
   }
 
   const fetchUptime = async () => {
-    if (!id) return
+    const targetId = id
+    if (!targetId) return
     try {
-      setUptime(await machineService.getUptime(id))
+      const data = await machineService.getUptime(targetId)
+      if (!isStale(targetId)) setUptime(data)
     } catch (error) {
       console.error('Failed to fetch uptime:', error)
     }
   }
 
   const fetchBamBuddyData = async () => {
-    if (!id) return
+    const targetId = id
+    if (!targetId) return
     try {
       const [status, config, logResponse, maintenance] = await Promise.all([
-        bambuddyService.getStatus(id),
+        bambuddyService.getStatus(targetId),
         bambuddyService.getConfig(),
-        bambuddyService.getPrintLog(id, 10),
-        bambuddyService.getMaintenance(id),
+        bambuddyService.getPrintLog(targetId, 10),
+        bambuddyService.getMaintenance(targetId),
       ])
+      if (isStale(targetId)) return
       setBbStatus(status)
+      setBbStatusStale(false)
       setBbConfig(config)
       setBbPrintLog(logResponse.items)
       setBbMaintenance(maintenance)
@@ -317,8 +341,12 @@ export function MachineDetail() {
     setBbSnapshotUrl(`${base}${base.includes('?') ? '&' : '?'}_t=${Date.now()}`)
   }, [id])
 
+  // Stable boolean: depending on the bbStatus object itself would tear the
+  // 5 s snapshot interval down on every 10 s status poll.
+  const bbLinked = !!bbStatus && !bbStatus.error
+
   useEffect(() => {
-    if (!id || !bbStatus || bbStatus.error || bbCameraLive) {
+    if (!id || !bbLinked || bbCameraLive) {
       // Clear interval when switching to live mode or no printer
       if (snapshotIntervalRef.current) {
         clearInterval(snapshotIntervalRef.current)
@@ -336,7 +364,19 @@ export function MachineDetail() {
         snapshotIntervalRef.current = null
       }
     }
-  }, [id, bbStatus, bbCameraLive, refreshSnapshot])
+  }, [id, bbLinked, bbCameraLive, refreshSnapshot])
+
+  // The live MJPEG <img> holds a multipart connection open for as long as it
+  // has a src. Clearing src when the element unmounts (live mode turned off,
+  // or navigating away) closes that connection.
+  const setLiveImgRef = useCallback((el: HTMLImageElement | null) => {
+    if (el) {
+      liveImgRef.current = el
+    } else if (liveImgRef.current) {
+      liveImgRef.current.src = ''
+      liveImgRef.current = null
+    }
+  }, [])
 
   // Keep a media token cached for thumbnail URLs; refresh well inside its 15 min lifetime
   useEffect(() => {
@@ -377,7 +417,7 @@ export function MachineDetail() {
       // Re-fetch status after a short delay to reflect the change
       setTimeout(async () => {
         const s = await bambuddyService.getStatus(id)
-        setBbStatus(s)
+        if (!isStale(id) && s) setBbStatus(s)
         setBbControlling(false)
       }, 2000)
     } catch (error) {
@@ -387,22 +427,28 @@ export function MachineDetail() {
   }
 
   const fetchMachine = async () => {
+    const targetId = id
+    if (!targetId) return
     try {
       setLoading(true)
-      const data = await machineService.getById(id!)
+      const data = await machineService.getById(targetId)
+      if (isStale(targetId)) return
       setMachine(data as MachineDetailData)
       // Auto-ping on load
       pingMachine()
     } catch (error) {
-      console.error('Failed to fetch machine:', error)
+      if (!isStale(targetId)) console.error('Failed to fetch machine:', error)
     } finally {
-      setLoading(false)
+      if (!isStale(targetId)) setLoading(false)
     }
   }
 
   const fetchTimeline = async () => {
+    const targetId = id
+    if (!targetId) return
     try {
-      const timeline = await machineService.getTimeline(id!)
+      const timeline = await machineService.getTimeline(targetId)
+      if (isStale(targetId)) return
       setServiceRecords(timeline.serviceRecords)
       setMaintenanceRequests(timeline.maintenanceRequests)
       // Update statusLogs from timeline (includes user data)
@@ -415,25 +461,28 @@ export function MachineDetail() {
   }
 
   const fetchAttachments = async () => {
+    const targetId = id
+    if (!targetId) return
     try {
-      const data = await machineService.getAttachments(id!)
-      setAttachments(data)
+      const data = await machineService.getAttachments(targetId)
+      if (!isStale(targetId)) setAttachments(data)
     } catch (error) {
       console.error('Failed to fetch attachments:', error)
     }
   }
 
   const pingMachine = async () => {
-    if (!id) return
+    const targetId = id
+    if (!targetId) return
     setPinging(true)
     try {
-      const { data } = await api.get<PingResult>(`/machines/${id}/ping`)
-      setPingResult(data)
+      const { data } = await api.get<PingResult>(`/machines/${targetId}/ping`)
+      if (!isStale(targetId)) setPingResult(data)
     } catch (error) {
       console.error('Ping failed:', error)
-      setPingResult({ reachable: false, reason: 'Ping request failed' })
+      if (!isStale(targetId)) setPingResult({ reachable: false, reason: 'Ping request failed' })
     } finally {
-      setPinging(false)
+      if (!isStale(targetId)) setPinging(false)
     }
   }
 
@@ -441,7 +490,7 @@ export function MachineDetail() {
     if (!newIP.label || !newIP.ipAddress) return
     setAddingIP(true)
     try {
-      const { data } = await api.post(`/machines/${id}/ips`, newIP)
+      const { data } = await api.post<MachineIP>(`/machines/${id}/ips`, newIP)
       setMachine((prev) => prev ? { ...prev, ips: [...(prev.ips || []), data] } : null)
       setNewIP({ label: '', ipAddress: '' })
       setShowAddIP(false)
@@ -538,7 +587,7 @@ export function MachineDetail() {
   const handleDeleteServiceRecord = async (recordId: string) => {
     if (!confirm('Are you sure you want to delete this service record?')) return
     try {
-      await api.delete(`/service-records/${recordId}`)
+      await serviceRecordService.delete(recordId)
       setServiceRecords((prev) => prev.filter((r) => r.id !== recordId))
     } catch (error) {
       console.error('Failed to delete service record:', error)
@@ -623,6 +672,8 @@ export function MachineDetail() {
       userName?: string
       source: 'attachment' | 'service-record'
       serviceRecordId?: string
+      /** createdAt is a date-only value (service-record performedAt), not an instant */
+      dateOnly?: boolean
     }> = []
 
     // Add machine attachments
@@ -653,6 +704,7 @@ export function MachineDetail() {
             userName: record.user?.name,
             source: 'service-record',
             serviceRecordId: record.id,
+            dateOnly: true,
           })
         })
       }
@@ -681,8 +733,8 @@ export function MachineDetail() {
     )
   }
 
-  const canClaim = isOperator && (!machine.claimedById || machine.claimedById === user?.id) && machine.status === 'available'
-  const canRelease = isOperator && machine.claimedById && (machine.claimedById === user?.id || isAdmin)
+  const userCanClaim = canClaim(machine, user)
+  const userCanRelease = canRelease(machine, user)
 
   return (
     <div className="space-y-6">
@@ -725,7 +777,7 @@ export function MachineDetail() {
             Ping
           </Button>
           {/* Claim/Release buttons */}
-          {canClaim && !machine.claimedById && (
+          {userCanClaim && (
             <div className="flex items-center gap-1">
               {isAdmin && users.length > 0 && (
                 <Select value={claimingUserId || '__self__'} onValueChange={(v) => setClaimingUserId(v === '__self__' ? '' : v)}>
@@ -757,7 +809,7 @@ export function MachineDetail() {
               </Button>
             </div>
           )}
-          {canRelease && (
+          {userCanRelease && (
             <Button variant="outline" onClick={handleRelease} disabled={releasing}>
               {releasing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
               Release
@@ -856,7 +908,7 @@ export function MachineDetail() {
                   <p className="text-sm text-muted-foreground">Build Date</p>
                   <p className="font-medium">
                     {machine.buildDate
-                      ? format(parseISO(machine.buildDate), 'MMM d, yyyy')
+                      ? formatDateOnly(machine.buildDate)
                       : 'Not specified'}
                   </p>
                 </div>
@@ -1091,6 +1143,15 @@ export function MachineDetail() {
               <CardTitle className="flex items-center gap-2 text-base">
                 <Printer className="h-4 w-4" />
                 Print Status
+                {bbStatusStale && (
+                  <span
+                    className="flex items-center gap-1 text-xs font-normal text-muted-foreground"
+                    title="The last status poll failed; showing the last known status"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    status unavailable
+                  </span>
+                )}
               </CardTitle>
               {bbConfig?.available && bbConfig.publicUrl && (
                 <a
@@ -1308,9 +1369,9 @@ export function MachineDetail() {
                   {displayFiles.map((file) => (
                     <div key={file.id} className="flex items-center gap-3 p-2 rounded-lg border group">
                       {isImageFile(file.fileType) ? (
-                        <a href={getPhotoUrl(file.filename)} target="_blank" rel="noopener noreferrer">
+                        <a href={file.filename} target="_blank" rel="noopener noreferrer">
                           <img
-                            src={getPhotoUrl(file.filename)}
+                            src={file.filename}
                             alt={file.originalName}
                             className="h-10 w-10 object-cover rounded"
                           />
@@ -1320,14 +1381,17 @@ export function MachineDetail() {
                       )}
                       <div className="flex-1 min-w-0">
                         <a
-                          href={getPhotoUrl(file.filename)}
+                          href={file.filename}
                           download={file.originalName}
                           className="text-sm font-medium hover:underline truncate block"
                         >
                           {file.originalName}
                         </a>
                         <p className="text-xs text-muted-foreground">
-                          {file.userName || 'Unknown'} · {format(parseISO(file.createdAt), 'MMM d, yyyy h:mm a')}
+                          {file.userName || 'Unknown'} ·{' '}
+                          {file.dateOnly
+                            ? formatDateOnly(file.createdAt)
+                            : format(parseISO(file.createdAt), 'MMM d, yyyy h:mm a')}
                           {file.source === 'service-record' && ' · Service record'}
                         </p>
                       </div>
@@ -1388,6 +1452,7 @@ export function MachineDetail() {
                 bbCameraLive ? (
                   bbStreamUrl && (
                     <img
+                      ref={setLiveImgRef}
                       src={bbStreamUrl}
                       alt="Printer camera live"
                       className="w-full rounded-lg bg-muted"
@@ -1610,7 +1675,7 @@ export function MachineDetail() {
                                 <Badge variant="default" className="text-xs">Service</Badge>
                                 <Badge variant="outline" className="text-xs">{record.type}</Badge>
                                 <span className="text-xs text-muted-foreground">
-                                  {format(parseISO(record.performedAt), 'MMM d, yyyy')}
+                                  {formatDateOnly(record.performedAt)}
                                 </span>
                               </div>
                               <p className="mt-1 text-sm">{record.description}</p>
@@ -1622,9 +1687,9 @@ export function MachineDetail() {
                               {record.photos && record.photos.length > 0 && (
                                 <div className="flex flex-wrap gap-2 mt-2">
                                   {record.photos.map((photo, i) => (
-                                    <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer">
+                                    <a key={i} href={photo} target="_blank" rel="noopener noreferrer">
                                       <img
-                                        src={getPhotoUrl(photo)}
+                                        src={photo}
                                         alt={`Photo ${i + 1}`}
                                         className="h-16 w-16 object-cover rounded border hover:opacity-80"
                                       />
@@ -1697,9 +1762,9 @@ export function MachineDetail() {
                             {request.photos && request.photos.length > 0 && (
                               <div className="flex flex-wrap gap-2 mt-2">
                                 {request.photos.map((photo, i) => (
-                                  <a key={i} href={getPhotoUrl(photo)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                                  <a key={i} href={photo} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                                     <img
-                                      src={getPhotoUrl(photo)}
+                                      src={photo}
                                       alt={`Photo ${i + 1}`}
                                       className="h-16 w-16 object-cover rounded border hover:opacity-80"
                                     />

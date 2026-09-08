@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/common'
-import api from '@/services/api'
+import { serviceRecordService } from '@/services/maintenance'
+import { todayDateInput, toDateInput } from '@/lib/dates'
+import { useObjectUrls } from '@/hooks/useObjectUrls'
 import type { ServiceRecord, ServiceType } from '@/types'
 
 interface AddServiceRecordDialogProps {
@@ -43,13 +45,14 @@ export function AddServiceRecordDialog({
   const [error, setError] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
   const [attachments, setAttachments] = useState<File[]>([])
+  const photoPreviews = useObjectUrls(photos)
   const [formData, setFormData] = useState({
     type: 'repair' as ServiceType,
     description: '',
     partsUsed: '',
     cost: '',
     performedBy: '',
-    performedAt: new Date().toISOString().split('T')[0],
+    performedAt: todayDateInput(),
     notes: '',
   })
 
@@ -63,8 +66,8 @@ export function AddServiceRecordDialog({
         cost: editingRecord.cost?.toString() || '',
         performedBy: editingRecord.performedBy,
         performedAt: editingRecord.performedAt
-          ? new Date(editingRecord.performedAt).toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0],
+          ? toDateInput(editingRecord.performedAt)
+          : todayDateInput(),
         notes: editingRecord.notes || '',
       })
       setPhotos([])
@@ -82,7 +85,7 @@ export function AddServiceRecordDialog({
       partsUsed: '',
       cost: '',
       performedBy: '',
-      performedAt: new Date().toISOString().split('T')[0],
+      performedAt: todayDateInput(),
       notes: '',
     })
     setPhotos([])
@@ -106,7 +109,7 @@ export function AddServiceRecordDialog({
     setLoading(true)
 
     try {
-      let record: ServiceRecord
+      let body: FormData | Partial<ServiceRecord>
       if (photos.length > 0 || attachments.length > 0) {
         const fd = new FormData()
         fd.append('type', formData.type)
@@ -118,22 +121,9 @@ export function AddServiceRecordDialog({
         if (formData.notes.trim()) fd.append('notes', formData.notes.trim())
         photos.forEach((file) => fd.append('photos', file))
         attachments.forEach((file) => fd.append('attachments', file))
-
-        if (isEditing) {
-          const { data } = await api.patch<ServiceRecord>(
-            `/service-records/${editingRecord.id}`,
-            fd
-          )
-          record = data
-        } else {
-          const { data } = await api.post<ServiceRecord>(
-            `/machines/${machineId}/service-history`,
-            fd
-          )
-          record = data
-        }
+        body = fd
       } else {
-        const payload = {
+        body = {
           type: formData.type,
           description: formData.description.trim(),
           partsUsed: formData.partsUsed.trim() || null,
@@ -142,21 +132,11 @@ export function AddServiceRecordDialog({
           performedAt: formData.performedAt,
           notes: formData.notes.trim() || null,
         }
-
-        if (isEditing) {
-          const { data } = await api.patch<ServiceRecord>(
-            `/service-records/${editingRecord.id}`,
-            payload
-          )
-          record = data
-        } else {
-          const { data } = await api.post<ServiceRecord>(
-            `/machines/${machineId}/service-history`,
-            payload
-          )
-          record = data
-        }
       }
+
+      const record = isEditing
+        ? await serviceRecordService.update(editingRecord.id, body)
+        : await serviceRecordService.create(machineId, body)
 
       onSave(record)
       onOpenChange(false)
@@ -324,12 +304,12 @@ export function AddServiceRecordDialog({
                   <span className="text-xs text-muted-foreground">{photos.length} file(s) selected</span>
                 )}
               </div>
-              {photos.length > 0 && (
+              {photoPreviews.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {photos.map((file, i) => (
+                  {photoPreviews.map((url, i) => (
                     <img
-                      key={i}
-                      src={URL.createObjectURL(file)}
+                      key={url}
+                      src={url}
                       alt={`Preview ${i + 1}`}
                       className="h-16 w-16 object-cover rounded border"
                     />

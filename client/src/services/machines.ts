@@ -1,6 +1,12 @@
 import api from './api'
 import type { Machine, MachineType, MachineStatus, MachineCondition, HourEntry, ServiceRecord, MaintenanceRequest, MachineStatusLog, MachineAttachment, UptimeData } from '@/types'
 
+export interface MachineTimeline {
+  serviceRecords: ServiceRecord[]
+  maintenanceRequests: MaintenanceRequest[]
+  statusLogs: MachineStatusLog[]
+}
+
 export const machineService = {
   async getAll(): Promise<Machine[]> {
     const { data } = await api.get<Machine[]>('/machines')
@@ -51,8 +57,8 @@ export const machineService = {
     return data
   },
 
-  async getTimeline(id: string): Promise<{ serviceRecords: ServiceRecord[]; maintenanceRequests: MaintenanceRequest[]; statusLogs: MachineStatusLog[] }> {
-    const { data } = await api.get(`/machines/${id}/timeline`)
+  async getTimeline(id: string): Promise<MachineTimeline> {
+    const { data } = await api.get<MachineTimeline>(`/machines/${id}/timeline`)
     return data
   },
 

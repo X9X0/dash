@@ -1,11 +1,12 @@
 import { Router } from 'express'
-import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { prisma } from '../lib/prisma.js'
 import { authenticate, requireOperator, AuthRequest } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
+import { isNotFoundError, parseDate } from '../lib/errors.js'
+import { UPLOAD_REF, parseAttachmentList, parseRefList, removeUploadedFiles, requestUploads } from '../lib/files.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 const updateServiceRecordSchema = z.object({
   type: z.enum(['repair', 'upgrade', 'modification', 'calibration']).optional(),
@@ -19,8 +20,17 @@ const updateServiceRecordSchema = z.object({
   performedBy: z.string().optional(),
   performedAt: z.string().optional(),
   notes: z.string().nullable().optional(),
-  photos: z.array(z.string()).optional(),
+  // The remaining photo list after the user removed some; only our own upload refs are allowed
+  photos: z.array(z.string().regex(UPLOAD_REF, 'Invalid photo reference')).optional(),
 })
+
+function parseRecord<T extends { photos: string | null; attachments: string | null }>(record: T) {
+  return {
+    ...record,
+    photos: parseRefList(record.photos),
+    attachments: parseAttachmentList(record.attachments),
+  }
+}
 
 // Get all service records
 router.get('/', authenticate, async (req: AuthRequest, res) => {
@@ -40,14 +50,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       orderBy: { performedAt: 'desc' },
     })
 
-    // Parse photos and attachments JSON
-    const parsedRecords = records.map((record) => ({
-      ...record,
-      photos: record.photos ? JSON.parse(record.photos) : [],
-      attachments: record.attachments ? JSON.parse(record.attachments) : [],
-    }))
-
-    res.json(parsedRecords)
+    res.json(records.map(parseRecord))
   } catch (error) {
     console.error('Get service records error:', error)
     res.status(500).json({ error: 'Failed to get service records' })
@@ -70,11 +73,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Service record not found' })
     }
 
-    res.json({
-      ...record,
-      photos: record.photos ? JSON.parse(record.photos) : [],
-      attachments: record.attachments ? JSON.parse(record.attachments) : [],
-    })
+    res.json(parseRecord(record))
   } catch (error) {
     console.error('Get service record error:', error)
     res.status(500).json({ error: 'Failed to get service record' })
@@ -89,33 +88,44 @@ router.patch('/:id', authenticate, requireOperator, upload.fields([{ name: 'phot
 
     const existing = await prisma.serviceRecord.findUnique({ where: { id } })
     if (!existing) {
+      await removeUploadedFiles(requestUploads(req))
       return res.status(404).json({ error: 'Service record not found' })
     }
 
-    const updateData: Record<string, unknown> = { ...data }
+    const { photos: requestedPhotos, ...fields } = data
+    const updateData: Record<string, unknown> = { ...fields }
     if (data.performedAt) {
-      updateData.performedAt = new Date(data.performedAt)
+      const performedAt = parseDate(data.performedAt)
+      if (!performedAt) {
+        await removeUploadedFiles(requestUploads(req))
+        return res.status(400).json({ error: 'Invalid performedAt date' })
+      }
+      updateData.performedAt = performedAt
     }
 
-    // Handle photo uploads - merge with existing photos
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined
+    const existingPhotos = parseRefList(existing.photos)
+    let removedPhotos: string[] = []
+
+    // Photos: new uploads are appended; otherwise an explicit list replaces the
+    // current one and any photo dropped from it is deleted from disk.
     if (files?.photos && files.photos.length > 0) {
       const newPhotos = files.photos.map((f) => `/uploads/${f.filename}`)
-      const existingPhotos = existing.photos ? JSON.parse(existing.photos) : []
       updateData.photos = JSON.stringify([...existingPhotos, ...newPhotos])
-    } else if (data.photos !== undefined) {
-      updateData.photos = data.photos ? JSON.stringify(data.photos) : null
+    } else if (requestedPhotos !== undefined) {
+      const keep = new Set(requestedPhotos)
+      removedPhotos = existingPhotos.filter((p) => !keep.has(p))
+      updateData.photos = requestedPhotos.length > 0 ? JSON.stringify(requestedPhotos) : null
     }
 
-    // Handle general file attachments - merge with existing attachments
+    // Attachments: merge with existing
     if (files?.attachments && files.attachments.length > 0) {
       const newAttachments = files.attachments.map((f) => ({
         filename: `/uploads/${f.filename}`,
         originalName: f.originalname,
         fileType: f.mimetype,
       }))
-      const existingAttachments = existing.attachments ? JSON.parse(existing.attachments) : []
-      updateData.attachments = JSON.stringify([...existingAttachments, ...newAttachments])
+      updateData.attachments = JSON.stringify([...parseAttachmentList(existing.attachments), ...newAttachments])
     }
 
     const record = await prisma.serviceRecord.update({
@@ -127,12 +137,11 @@ router.patch('/:id', authenticate, requireOperator, upload.fields([{ name: 'phot
       },
     })
 
-    res.json({
-      ...record,
-      photos: record.photos ? JSON.parse(record.photos) : [],
-      attachments: record.attachments ? JSON.parse(record.attachments) : [],
-    })
+    await removeUploadedFiles(removedPhotos)
+
+    res.json(parseRecord(record))
   } catch (error) {
+    await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
@@ -145,9 +154,27 @@ router.patch('/:id', authenticate, requireOperator, upload.fields([{ name: 'phot
 router.delete('/:id', authenticate, requireOperator, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
+
+    const existing = await prisma.serviceRecord.findUnique({
+      where: { id },
+      select: { photos: true, attachments: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Service record not found' })
+    }
+
     await prisma.serviceRecord.delete({ where: { id } })
+
+    await removeUploadedFiles([
+      ...parseRefList(existing.photos),
+      ...parseAttachmentList(existing.attachments).map((a) => a.filename),
+    ])
+
     res.json({ success: true })
   } catch (error) {
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Service record not found' })
+    }
     console.error('Delete service record error:', error)
     res.status(500).json({ error: 'Failed to delete service record' })
   }

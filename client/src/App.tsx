@@ -3,20 +3,35 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { Login, Register, Dashboard, Machines, MachineDetail, MachineEdit, Calendar, Maintenance, MaintenanceDetail, Logs, Kiosk, Users, Notifications, MachineTypes, Settings } from './pages'
 import { Layout } from './components/Layout'
 import { useAuthStore } from './store/authStore'
+import { authService } from './services/auth'
 import { initSocket, disconnectSocket } from './services/socket'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
-  return !isAuthenticated ? <>{children}</> : <Navigate to="/dashboard" />
+  return !isAuthenticated ? <>{children}</> : <Navigate to="/dashboard" replace />
 }
 
 function App() {
   const { isAuthenticated } = useAuthStore()
+
+  // Validate a persisted session once on boot: refresh the cached user, and
+  // end the session if the server rejects the token. A pure network failure
+  // (no response) is not proof the token is bad, so the session is kept.
+  useEffect(() => {
+    const { token, setUser, logout } = useAuthStore.getState()
+    if (!token) return
+    authService
+      .me()
+      .then((user) => setUser(user))
+      .catch((err: { response?: unknown }) => {
+        if (err?.response) logout()
+      })
+  }, [])
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -169,8 +184,8 @@ function App() {
           </PrivateRoute>
         }
       />
-      <Route path="/kiosk" element={<Navigate to="/" />} />
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="/kiosk" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

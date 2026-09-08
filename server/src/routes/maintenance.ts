@@ -1,11 +1,13 @@
 import { Router } from 'express'
-import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { prisma } from '../lib/prisma.js'
 import { authenticate, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
+import { isForeignKeyError, isNotFoundError } from '../lib/errors.js'
+import { parseRefList, removeUploadedFiles, requestUploads } from '../lib/files.js'
+import { notifyAdmins } from '../lib/notify.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 const createMaintenanceSchema = z.object({
   machineId: z.string().min(1),
@@ -21,6 +23,16 @@ const updateMaintenanceSchema = z.object({
   description: z.string().optional(),
   status: z.enum(['submitted', 'in_progress', 'resolved']).optional(),
 })
+
+// Priority is stored as text; sorting it alphabetically puts "medium" first
+// and "critical" last, so rank explicitly.
+const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+const priorityRank = (p: string) => PRIORITY_RANK[p] ?? 99
+
+function uploadedPhotoPaths(req: AuthRequest): string[] {
+  const files = req.files as Express.Multer.File[] | undefined
+  return files?.map((f) => `/uploads/${f.filename}`) || []
+}
 
 // Get all maintenance requests
 router.get('/', authenticate, async (req: AuthRequest, res) => {
@@ -38,16 +50,16 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         machine: { select: { id: true, name: true, location: true } },
         user: { select: { id: true, name: true } },
       },
-      orderBy: [
-        { priority: 'desc' },
-        { createdAt: 'desc' },
-      ],
+      orderBy: { createdAt: 'desc' },
     })
+
+    // Most urgent first, newest first within the same priority
+    requests.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || b.createdAt.getTime() - a.createdAt.getTime())
 
     // Parse photos JSON for each request
     const parsedRequests = requests.map((r) => ({
       ...r,
-      photos: r.photos ? JSON.parse(r.photos) : [],
+      photos: parseRefList(r.photos),
     }))
 
     res.json(parsedRequests)
@@ -82,10 +94,10 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     // Parse photos JSON
     const parsedRequest = {
       ...request,
-      photos: request.photos ? JSON.parse(request.photos) : [],
+      photos: parseRefList(request.photos),
       updates: request.updates.map((u) => ({
         ...u,
-        photos: u.photos ? JSON.parse(u.photos) : [],
+        photos: parseRefList(u.photos),
       })),
     }
 
@@ -100,10 +112,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 router.post('/', authenticate, requireOperator, upload.array('photos', 5), async (req: AuthRequest, res) => {
   try {
     const data = createMaintenanceSchema.parse(req.body)
-
-    // Handle file uploads
-    const files = req.files as Express.Multer.File[] | undefined
-    const photoPaths = files?.map((f) => `/uploads/${f.filename}`) || []
+    const photoPaths = uploadedPhotoPaths(req)
 
     const request = await prisma.maintenanceRequest.create({
       data: {
@@ -131,20 +140,24 @@ router.post('/', authenticate, requireOperator, upload.array('photos', 5), async
       },
     })
 
-    // Notify admins of critical issues
+    // Notify admins of critical issues (persisted + pushed to their sockets)
     if (data.priority === 'critical') {
-      const io = req.app.get('io')
-      io.emit('notification', {
+      await notifyAdmins({
         type: 'critical_maintenance',
         title: 'Critical Maintenance Request',
-        message: `Critical ${data.type} request for ${request.machine.name}`,
+        message: `Critical ${data.type} request for ${request.machine.name}: ${data.description.substring(0, 100)}`,
       })
     }
 
-    res.status(201).json(request)
+    res.status(201).json({ ...request, photos: photoPaths })
   } catch (error) {
+    // The request was rejected, so the photos multer already saved are orphans.
+    await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isForeignKeyError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
     }
     console.error('Create maintenance request error:', error)
     res.status(500).json({ error: 'Failed to create maintenance request' })
@@ -159,6 +172,7 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
 
     const existing = await prisma.maintenanceRequest.findUnique({ where: { id } })
     if (!existing) {
+      await removeUploadedFiles(requestUploads(req))
       return res.status(404).json({ error: 'Request not found' })
     }
 
@@ -168,11 +182,9 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
     }
 
     // Handle file uploads
-    const files = req.files as Express.Multer.File[] | undefined
-    if (files && files.length > 0) {
-      const newPhotos = files.map((f) => `/uploads/${f.filename}`)
-      const existingPhotos = existing.photos ? JSON.parse(existing.photos) : []
-      updateData.photos = JSON.stringify([...existingPhotos, ...newPhotos])
+    const newPhotos = uploadedPhotoPaths(req)
+    if (newPhotos.length > 0) {
+      updateData.photos = JSON.stringify([...parseRefList(existing.photos), ...newPhotos])
     }
 
     const request = await prisma.maintenanceRequest.update({
@@ -198,9 +210,10 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
 
     res.json({
       ...request,
-      photos: request.photos ? JSON.parse(request.photos) : [],
+      photos: parseRefList(request.photos),
     })
   } catch (error) {
+    await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
@@ -213,9 +226,28 @@ router.patch('/:id', authenticate, requireOperator, upload.array('photos', 5), a
 router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string
+
+    const existing = await prisma.maintenanceRequest.findUnique({
+      where: { id },
+      select: { photos: true, updates: { select: { photos: true } } },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Request not found' })
+    }
+
     await prisma.maintenanceRequest.delete({ where: { id } })
+
+    // Photos on the request and its updates are no longer referenced anywhere.
+    await removeUploadedFiles([
+      ...parseRefList(existing.photos),
+      ...existing.updates.flatMap((u) => parseRefList(u.photos)),
+    ])
+
     res.json({ success: true })
   } catch (error) {
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Request not found' })
+    }
     console.error('Delete maintenance request error:', error)
     res.status(500).json({ error: 'Failed to delete maintenance request' })
   }
@@ -236,7 +268,7 @@ router.get('/:id/updates', authenticate, async (req: AuthRequest, res) => {
     // Parse photos JSON
     const parsedUpdates = updates.map((u) => ({
       ...u,
-      photos: u.photos ? JSON.parse(u.photos) : [],
+      photos: parseRefList(u.photos),
     }))
 
     res.json(parsedUpdates)
@@ -251,10 +283,7 @@ router.post('/:id/updates', authenticate, requireOperator, upload.array('photos'
   try {
     const id = req.params.id as string
     const { content } = z.object({ content: z.string().min(1) }).parse(req.body)
-
-    // Handle file uploads
-    const files = req.files as Express.Multer.File[] | undefined
-    const photoPaths = files?.map((f) => `/uploads/${f.filename}`) || []
+    const photoPaths = uploadedPhotoPaths(req)
 
     const update = await prisma.maintenanceUpdate.create({
       data: {
@@ -268,13 +297,14 @@ router.post('/:id/updates', authenticate, requireOperator, upload.array('photos'
       },
     })
 
-    res.status(201).json({
-      ...update,
-      photos: update.photos ? JSON.parse(update.photos) : [],
-    })
+    res.status(201).json({ ...update, photos: photoPaths })
   } catch (error) {
+    await removeUploadedFiles(requestUploads(req))
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isForeignKeyError(error)) {
+      return res.status(404).json({ error: 'Request not found' })
     }
     console.error('Add maintenance update error:', error)
     res.status(500).json({ error: 'Failed to add maintenance update' })

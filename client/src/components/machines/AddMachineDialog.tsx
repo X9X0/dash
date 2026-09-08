@@ -4,6 +4,7 @@ import { X, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { machineService } from '@/services/machines'
 import { useMachineStore } from '@/store/machineStore'
+import { categoryOrder } from '@/lib/machines'
 import api from '@/services/api'
 import type { MachineType, MachineStatus } from '@/types'
 
@@ -16,17 +17,6 @@ interface AddMachineDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   machineTypes: MachineType[]
-}
-
-// Define category order for sorting
-const categoryOrder: Record<string, number> = {
-  'Biped Humanoid': 1,
-  'Wheeled Humanoid': 2,
-  'Robot Arm': 3,
-  'Testbench': 4,
-  'FDM Printer': 5,
-  'SLA/Resin Printer': 6,
-  'SLS Printer': 7,
 }
 
 export function AddMachineDialog({ open, onOpenChange, machineTypes }: AddMachineDialogProps) {
@@ -63,9 +53,7 @@ export function AddMachineDialog({ open, onOpenChange, machineTypes }: AddMachin
   }
 
   const updateIPEntry = (index: number, field: keyof IPEntry, value: string) => {
-    const updated = [...ipEntries]
-    updated[index][field] = value
-    setIpEntries(updated)
+    setIpEntries((prev) => prev.map((entry, i) => (i === index ? { ...entry, [field]: value } : entry)))
   }
 
   const resetForm = () => {
@@ -213,7 +201,6 @@ export function AddMachineDialog({ open, onOpenChange, machineTypes }: AddMachin
                     <SelectItem value="in_use">In Use</SelectItem>
                     <SelectItem value="maintenance">Maintenance</SelectItem>
                     <SelectItem value="offline">Offline</SelectItem>
-                    <SelectItem value="damaged_but_usable">Damaged (Usable)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

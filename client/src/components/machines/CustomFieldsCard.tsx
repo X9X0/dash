@@ -71,7 +71,7 @@ export function CustomFieldsCard({ machineId, machineType, canEdit }: CustomFiel
     try {
       // Convert form data to array format for API
       const fields = Object.entries(formData)
-        .filter(([_, value]) => value !== '' && value !== undefined)
+        .filter(([, value]) => value !== '' && value !== undefined)
         .map(([fieldName, fieldValue]) => ({
           fieldName,
           fieldValue: String(fieldValue),

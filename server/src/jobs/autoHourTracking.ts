@@ -1,13 +1,15 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { round2 } from '../lib/hours.js'
 import { pingHost } from '../lib/ping.js'
-
-const prisma = new PrismaClient()
+import { mapConcurrent } from '../lib/concurrency.js'
 
 // Interval in minutes between checks
 const CHECK_INTERVAL_MINUTES = 5
 // How much time to credit per successful ping interval (in hours)
 const HOURS_PER_INTERVAL = CHECK_INTERVAL_MINUTES / 60
+// How many machines to ping at once. An unreachable machine takes ~10 s of
+// retries, so pinging serially could stretch one check past the next tick.
+const PING_CONCURRENCY = 5
 
 let isRunning = false
 
@@ -21,11 +23,13 @@ async function checkMachines(): Promise<void> {
   const now = new Date()
 
   try {
-    // Get all machines with auto hour tracking enabled
-    const machines = await prisma.machine.findMany({
-      where: { autoHourTracking: true },
-      include: { ips: true },
-    })
+    // Get all machines with auto hour tracking enabled and at least one address
+    const machines = (
+      await prisma.machine.findMany({
+        where: { autoHourTracking: true },
+        include: { ips: { orderBy: { id: 'asc' } } },
+      })
+    ).filter((m) => m.ips.length > 0)
 
     if (machines.length === 0) {
       return
@@ -33,54 +37,45 @@ async function checkMachines(): Promise<void> {
 
     console.log(`[AutoHourTracking] Checking ${machines.length} machines...`)
 
-    for (const machine of machines) {
-      if (!machine.ips || machine.ips.length === 0) {
+    // Ping the first address of each machine, a few at a time
+    const reachability = await mapConcurrent(machines, PING_CONCURRENCY, (m) => pingHost(m.ips[0].ipAddress))
+
+    for (const [index, machine] of machines.entries()) {
+      if (!reachability[index]) continue
+
+      // Machine is online - credit hours if enough time has passed since last ping
+      const lastPing = machine.lastPingAt
+      const shouldCreditHours =
+        !lastPing ||
+        now.getTime() - new Date(lastPing).getTime() >= CHECK_INTERVAL_MINUTES * 60 * 1000 * 0.9 // 90% of interval to absorb timing variance
+
+      if (!shouldCreditHours) {
+        await prisma.machine.update({
+          where: { id: machine.id },
+          data: { lastPingAt: now },
+        })
         continue
       }
 
-      // Ping first IP to check if machine is online
-      const ip = machine.ips[0]
-      const isReachable = await pingHost(ip.ipAddress)
+      const newTotal = round2(machine.hourMeter + HOURS_PER_INTERVAL)
+      await prisma.$transaction([
+        prisma.machine.update({
+          where: { id: machine.id },
+          data: { hourMeter: newTotal, lastPingAt: now },
+        }),
+        // System-generated entry: no user
+        prisma.hourEntry.create({
+          data: {
+            machineId: machine.id,
+            userId: null,
+            hours: HOURS_PER_INTERVAL,
+            date: now,
+            notes: 'Auto-tracked (network uptime)',
+          },
+        }),
+      ])
 
-      if (isReachable) {
-        // Machine is online - credit hours if enough time has passed since last ping
-        const lastPing = machine.lastPingAt
-        const shouldCreditHours = !lastPing ||
-          (now.getTime() - new Date(lastPing).getTime()) >= (CHECK_INTERVAL_MINUTES * 60 * 1000 * 0.9) // 90% of interval to account for timing variance
-
-        if (shouldCreditHours) {
-          const newTotal = round2(machine.hourMeter + HOURS_PER_INTERVAL)
-          await prisma.machine.update({
-            where: { id: machine.id },
-            data: {
-              hourMeter: newTotal,
-              lastPingAt: now,
-            },
-          })
-
-          // Create hour entry for tracking
-          // Using a system user ID - you may want to create a dedicated system user
-          await prisma.hourEntry.create({
-            data: {
-              machineId: machine.id,
-              userId: 'system', // This should be a valid user ID in production
-              hours: HOURS_PER_INTERVAL,
-              date: now,
-              notes: 'Auto-tracked (network uptime)',
-            },
-          }).catch(() => {
-            // If system user doesn't exist, just skip the entry
-          })
-
-          console.log(`[AutoHourTracking] ${machine.name}: credited ${HOURS_PER_INTERVAL.toFixed(2)} hours (total: ${newTotal.toFixed(2)})`)
-        } else {
-          // Just update lastPingAt without crediting hours
-          await prisma.machine.update({
-            where: { id: machine.id },
-            data: { lastPingAt: now },
-          })
-        }
-      }
+      console.log(`[AutoHourTracking] ${machine.name}: credited ${HOURS_PER_INTERVAL.toFixed(2)} hours (total: ${newTotal.toFixed(2)})`)
     }
   } catch (error) {
     console.error('[AutoHourTracking] Error:', error)

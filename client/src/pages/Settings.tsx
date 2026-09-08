@@ -77,7 +77,7 @@ function ProfileSettings({ user, onUpdate }: ProfileSettingsProps) {
     setLoading(true)
 
     try {
-      const { data } = await api.patch(`/users/${user.id}`, {
+      const { data } = await api.patch<User>(`/users/${user.id}`, {
         name: formData.name.trim(),
         email: formData.email.trim(),
       })
@@ -167,6 +167,7 @@ function PasswordSettings({ userId }: PasswordSettingsProps) {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [formData, setFormData] = useState({
+    currentPassword: '',
     password: '',
     confirmPassword: '',
   })
@@ -175,6 +176,11 @@ function PasswordSettings({ userId }: PasswordSettingsProps) {
     e.preventDefault()
     setError('')
     setSuccess(false)
+
+    if (!formData.currentPassword) {
+      setError('Current password is required')
+      return
+    }
 
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters')
@@ -189,10 +195,13 @@ function PasswordSettings({ userId }: PasswordSettingsProps) {
     setLoading(true)
 
     try {
+      // Changing your own password requires the current one; the server
+      // answers 400 { error } if it is wrong, which is surfaced below.
       await api.patch(`/users/${userId}`, {
+        currentPassword: formData.currentPassword,
         password: formData.password,
       })
-      setFormData({ password: '', confirmPassword: '' })
+      setFormData({ currentPassword: '', password: '', confirmPassword: '' })
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err: unknown) {
@@ -225,10 +234,24 @@ function PasswordSettings({ userId }: PasswordSettingsProps) {
           )}
 
           <div className="space-y-2">
+            <Label htmlFor="currentPassword">Current Password</Label>
+            <Input
+              id="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              value={formData.currentPassword}
+              onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
+              placeholder="Enter your current password"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="password">New Password</Label>
             <Input
               id="password"
               type="password"
+              autoComplete="new-password"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               placeholder="Enter new password"

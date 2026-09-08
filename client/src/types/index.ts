@@ -16,7 +16,7 @@ export interface MachineType {
   id: string
   name: string
   category: MachineCategory
-  icon: string
+  icon: string | null
   fieldsSchema: Record<string, FieldSchema>
 }
 
@@ -75,6 +75,15 @@ export interface Machine {
   createdAt: string
   ips?: MachineIP[]
   customFields?: MachineCustomField[]
+}
+
+/** One entry of GET /machines/ping/all (and its /public variant). */
+export interface PingStatus {
+  machineId: string
+  reachable: boolean | null
+  hostnameReachable: boolean | null
+  resolvedIP: string | null
+  resolvedHostname: string | null
 }
 
 export interface UptimeEvent {
@@ -237,12 +246,6 @@ export interface MachineAttachment {
   fileType: string
   description: string | null
   createdAt: string
-}
-
-export interface AuthState {
-  user: User | null
-  token: string | null
-  isAuthenticated: boolean
 }
 
 export interface LoginCredentials {

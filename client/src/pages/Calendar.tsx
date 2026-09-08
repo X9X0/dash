@@ -42,14 +42,12 @@ export function Calendar() {
   const [machines, setMachines] = useState<Machine[]>([])
   const [machineFilter, setMachineFilter] = useState<string>('all')
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [, setLoading] = useState(true)
   const [bbStatuses, setBbStatuses] = useState<Record<string, BamBuddyPrinterStatus>>({})
   const [bbQueue, setBbQueue] = useState<BamBuddyQueueItem[]>([])
   const [bbPrintLog, setBbPrintLog] = useState<BamBuddyPrintLogEntry[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true)
       try {
         const [reservationsData, machinesData] = await Promise.all([
           reservationService.getAll(),
@@ -59,8 +57,6 @@ export function Calendar() {
         setMachines(machinesData)
       } catch (error) {
         console.error('Failed to fetch calendar data:', error)
-      } finally {
-        setLoading(false)
       }
 
       // Fetch BamBuddy statuses and queue for printer availability / calendar
@@ -75,20 +71,29 @@ export function Calendar() {
         })
         setBbStatuses(map)
         setBbQueue(queue)
-      } catch {}
+      } catch {
+        // BamBuddy is optional; a failed poll keeps the last known data
+      }
     }
     fetchData()
   }, [])
 
-  // Fetch print log for the visible month range
+  // Fetch print log for the visible month range. Paging quickly through
+  // months fires overlapping requests; only the latest month's response wins.
   useEffect(() => {
+    let cancelled = false
     const monthStart = startOfMonth(currentMonth)
     const monthEnd = endOfMonth(currentMonth)
     const dateFrom = format(startOfWeek(monthStart), 'yyyy-MM-dd')
     const dateTo = format(endOfWeek(monthEnd), 'yyyy-MM-dd')
     bambuddyService.getPrintLogAll({ limit: 200, dateFrom, dateTo })
-      .then((res) => setBbPrintLog(res.items))
+      .then((res) => {
+        if (!cancelled) setBbPrintLog(res.items)
+      })
       .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [currentMonth])
 
   // Convert BamBuddy queue items + print log into calendar-displayable print events
@@ -317,7 +322,7 @@ export function Calendar() {
   const selectedDayPrints = selectedDate ? getPrintEventsForDay(selectedDate) : []
 
   const handleReservationCreated = (reservation: Reservation) => {
-    setReservations([...reservations, reservation])
+    setReservations((prev) => [...prev, reservation])
   }
 
   return (

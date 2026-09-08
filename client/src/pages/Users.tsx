@@ -27,7 +27,8 @@ const roleConfig: Record<UserRole, { label: string; variant: 'default' | 'second
 }
 
 export function Users() {
-  const { user: currentUser } = useAuthStore()
+  const { user: currentUser, setUser } = useAuthStore()
+  const isAdmin = currentUser?.role === 'admin'
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -35,12 +36,8 @@ export function Users() {
   const [deletingUser, setDeletingUser] = useState<User | null>(null)
   const [showAddUser, setShowAddUser] = useState(false)
 
-  // Only admins can access this page
-  if (currentUser?.role !== 'admin') {
-    return <Navigate to="/dashboard" />
-  }
-
   useEffect(() => {
+    if (!isAdmin) return
     const fetchUsers = async () => {
       try {
         const data = await userService.getAll()
@@ -52,7 +49,7 @@ export function Users() {
       }
     }
     fetchUsers()
-  }, [])
+  }, [isAdmin])
 
   const filteredUsers = users.filter((user) => {
     const query = searchQuery.toLowerCase()
@@ -64,17 +61,19 @@ export function Users() {
   })
 
   const handleUserCreated = (newUser: User) => {
-    setUsers([newUser, ...users])
+    setUsers((prev) => [newUser, ...prev])
     setShowAddUser(false)
   }
 
   const handleUserUpdated = (updatedUser: User) => {
-    setUsers(users.map((u) => (u.id === updatedUser.id ? updatedUser : u)))
+    setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)))
+    // Editing yourself must also refresh the session's cached user
+    if (updatedUser.id === currentUser?.id) setUser(updatedUser)
     setEditingUser(null)
   }
 
   const handleUserDeleted = (userId: string) => {
-    setUsers(users.filter((u) => u.id !== userId))
+    setUsers((prev) => prev.filter((u) => u.id !== userId))
     setDeletingUser(null)
   }
 
@@ -84,6 +83,11 @@ export function Users() {
       month: 'short',
       day: 'numeric',
     })
+  }
+
+  // Only admins can access this page (checked after all hooks have run)
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />
   }
 
   if (loading) {

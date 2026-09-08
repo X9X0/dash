@@ -34,40 +34,14 @@ export function setupSocket(io: Server) {
       socket.join(`user:${socket.userId}`)
     }
 
-    // Handle machine status updates from machines themselves
-    socket.on('machine:heartbeat', (data: { machineId: string; metrics?: Record<string, unknown> }) => {
-      // Broadcast to all connected clients
-      io.emit('machine:heartbeat', data)
-    })
+    // Clients only listen. Every machine/notification event originates from the
+    // server (routes and background jobs); nothing a client sends is rebroadcast,
+    // so a connected user cannot spoof machine state for everyone else.
 
-    // Handle manual status update requests
-    socket.on('machine:setStatus', (data: { machineId: string; status: string }) => {
-      io.emit('machine:status', data)
-    })
-
-    // Handle disconnection
     socket.on('disconnect', () => {
       console.log(`User disconnected: ${socket.userId}`)
     })
   })
 
-  // Helper function to send notification to specific user
-  io.sendNotification = (userId: string, notification: { type: string; title: string; message: string }) => {
-    io.to(`user:${userId}`).emit('notification', notification)
-  }
-
-  // Helper function to broadcast machine status
-  io.broadcastMachineStatus = (machineId: string, status: string) => {
-    io.emit('machine:status', { machineId, status })
-  }
-
   return io
-}
-
-// Extend Socket.io Server type
-declare module 'socket.io' {
-  interface Server {
-    sendNotification: (userId: string, notification: { type: string; title: string; message: string }) => void
-    broadcastMachineStatus: (machineId: string, status: string) => void
-  }
 }

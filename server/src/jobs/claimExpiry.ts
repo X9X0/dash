@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client'
 import type { Server } from 'socket.io'
-
-const prisma = new PrismaClient()
+import { prisma } from '../lib/prisma.js'
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 
@@ -20,6 +18,9 @@ async function releaseExpiredClaims(io: Server): Promise<void> {
 
     for (const machine of expiredMachines) {
       const claimerName = machine.claimedBy?.name || 'Unknown'
+      // A claim only ever moved the machine from available to in_use, so only
+      // undo that; a machine put into maintenance/offline while claimed stays there.
+      const status = machine.status === 'in_use' ? 'available' : machine.status
 
       await prisma.machine.update({
         where: { id: machine.id },
@@ -27,7 +28,7 @@ async function releaseExpiredClaims(io: Server): Promise<void> {
           claimedById: null,
           claimedAt: null,
           claimExpiresAt: null,
-          status: 'available',
+          status,
         },
       })
 
@@ -35,7 +36,7 @@ async function releaseExpiredClaims(io: Server): Promise<void> {
       await prisma.machineStatusLog.create({
         data: {
           machineId: machine.id,
-          status: 'available',
+          status,
           source: 'api',
         },
       })
@@ -52,7 +53,7 @@ async function releaseExpiredClaims(io: Server): Promise<void> {
         })
       }
 
-      io.emit('machine:released', { machineId: machine.id })
+      io.emit('machine:released', { machineId: machine.id, status })
       console.log(`[ClaimExpiry] Released expired claim on ${machine.name} (was held by ${claimerName})`)
     }
   } catch (error) {

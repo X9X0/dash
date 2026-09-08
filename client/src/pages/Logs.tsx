@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, Download, Filter, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Search, Download, Filter, Plus, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { Button, Card, CardContent, Input, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/common'
 import { machineService } from '@/services/machines'
@@ -16,6 +16,11 @@ const jobStatusBadgeVariants: Record<JobStatus, 'default' | 'secondary' | 'succe
   cancelled: 'warning',
 }
 
+/** Quote a CSV field when it contains a delimiter, quote or newline (RFC 4180). */
+function csvEscape(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
 export function Logs() {
   const { user } = useAuthStore()
   const canEdit = user?.role === 'admin' || user?.role === 'operator'
@@ -26,7 +31,7 @@ export function Logs() {
   const [searchQuery, setSearchQuery] = useState('')
   const [machineFilter, setMachineFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [showJobDialog, setShowJobDialog] = useState(false)
   const [editingJob, setEditingJob] = useState<Job | null>(null)
 
@@ -100,13 +105,15 @@ export function Logs() {
       }
     })
 
-    const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n')
+    const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `${activeTab}-${format(new Date(), 'yyyy-MM-dd')}.csv`
     a.click()
+    // Let the download start before releasing the blob URL
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   const handleJobSaved = (job: Job) => {
@@ -293,7 +300,13 @@ export function Logs() {
               </table>
             </div>
             {filteredJobs.length === 0 && (
-              <p className="text-center text-muted-foreground py-8">No jobs found</p>
+              loading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <p className="text-center text-muted-foreground py-8">No jobs found</p>
+              )
             )}
           </CardContent>
         </Card>
@@ -329,7 +342,13 @@ export function Logs() {
               </table>
             </div>
             {filteredActivities.length === 0 && (
-              <p className="text-center text-muted-foreground py-8">No activity logs found</p>
+              loading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <p className="text-center text-muted-foreground py-8">No activity logs found</p>
+              )
             )}
           </CardContent>
         </Card>

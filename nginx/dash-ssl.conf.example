@@ -44,6 +44,9 @@ server {
 
 # HTTPS - Main server
 server {
+    # The "http2" listen parameter works on every nginx version (it only logs a
+    # deprecation warning on nginx >= 1.25.1). If you are on >= 1.25.1 and want
+    # to silence that warning, drop "http2" from both lines and add "http2 on;".
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name YOUR_DOMAIN;
@@ -71,14 +74,12 @@ server {
     ssl_session_cache shared:SSL:50m;
     ssl_session_tickets off;
 
-    # OCSP Stapling
-    ssl_stapling on;
-    ssl_stapling_verify on;
-    resolver 8.8.8.8 8.8.4.4 valid=300s;
-    resolver_timeout 5s;
+    # OCSP stapling is intentionally NOT enabled: Let's Encrypt has shut down
+    # its OCSP responders, so ssl_stapling would only log errors, and it would
+    # require hardcoding a third-party DNS resolver here.
 
     # ==========================================================================
-    # Security Headers
+    # Security Headers (keep in sync with dash.conf)
     # ==========================================================================
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -93,8 +94,11 @@ server {
     access_log /var/log/nginx/dash_access.log;
     error_log /var/log/nginx/dash_error.log;
 
-    # Max upload size
-    client_max_body_size 50M;
+    # Max request body. The app enforces its own 10 MB per-file upload limit
+    # (multer) and returns a JSON error the UI can display; this must be a bit
+    # larger than that so nginx's bare "413 Request Entity Too Large" page is
+    # never what the user sees. Raise both if you raise the app limit.
+    client_max_body_size 12M;
 
     # Proxy timeouts
     proxy_connect_timeout 60s;
@@ -123,6 +127,23 @@ server {
         # Disable buffering for real-time
         proxy_buffering off;
         proxy_cache off;
+    }
+
+    # BamBuddy camera streams (MJPEG — long-lived, unbuffered)
+    location ~ ^/api/bambuddy/camera/.*/stream$ {
+        proxy_pass http://dash_backend;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 
     # All other routes

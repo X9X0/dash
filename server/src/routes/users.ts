@@ -1,11 +1,11 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
-import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { prisma } from '../lib/prisma.js'
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth.js'
+import { isNotFoundError, isUniqueViolation } from '../lib/errors.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 const createUserSchema = z.object({
   name: z.string().min(1),
@@ -19,20 +19,16 @@ const updateUserSchema = z.object({
   email: z.string().email().optional(),
   role: z.enum(['admin', 'operator', 'viewer']).optional(),
   password: z.string().min(6).optional(),
+  // Required when a user changes their own password
+  currentPassword: z.string().optional(),
 })
+
+const publicUserSelect = { id: true, email: true, name: true, role: true, createdAt: true } as const
 
 // Create user (admin only)
 router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
     const data = createUserSchema.parse(req.body)
-
-    // Check if email already exists
-    const existing = await prisma.user.findUnique({
-      where: { email: data.email },
-    })
-    if (existing) {
-      return res.status(400).json({ error: 'Email already in use' })
-    }
 
     const passwordHash = await bcrypt.hash(data.password, 10)
 
@@ -43,13 +39,16 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
         role: data.role,
         passwordHash,
       },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: publicUserSelect,
     })
 
     res.status(201).json(user)
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isUniqueViolation(error)) {
+      return res.status(400).json({ error: 'Email already in use' })
     }
     console.error('Create user error:', error)
     res.status(500).json({ error: 'Failed to create user' })
@@ -61,7 +60,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: publicUserSelect,
     })
     res.json(user)
   } catch (error) {
@@ -74,7 +73,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
 router.get('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   try {
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: publicUserSelect,
       orderBy: { createdAt: 'desc' },
     })
     res.json(users)
@@ -97,27 +96,57 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res) => {
 
     const data = updateUserSchema.parse(req.body)
 
-    // Non-admins can't change roles
-    if (data.role && !isAdmin) {
-      delete data.role
+    const target = await prisma.user.findUnique({ where: { id } })
+    if (!target) {
+      return res.status(404).json({ error: 'User not found' })
     }
 
-    const updateData: Record<string, unknown> = { ...data }
+    // Only admins can change roles, and the system must always keep one admin.
+    const newRole = isAdmin ? data.role : undefined
+    if (newRole && newRole !== 'admin' && target.role === 'admin') {
+      const adminCount = await prisma.user.count({ where: { role: 'admin' } })
+      if (adminCount <= 1) {
+        return res.status(400).json({ error: 'Cannot remove the last administrator' })
+      }
+    }
+
+    // Build the update explicitly so nothing else from the body reaches the database.
+    const updateData: { name?: string; email?: string; role?: string; passwordHash?: string } = {}
+    if (data.name !== undefined) updateData.name = data.name
+    if (data.email !== undefined) updateData.email = data.email
+    if (newRole !== undefined) updateData.role = newRole
+
     if (data.password) {
+      // Changing your own password needs the current one (a stolen session must
+      // not be able to lock the real owner out). Admins resetting someone else's do not.
+      if (isSelf) {
+        if (!data.currentPassword) {
+          return res.status(400).json({ error: 'Current password is required' })
+        }
+        const valid = await bcrypt.compare(data.currentPassword, target.passwordHash)
+        if (!valid) {
+          return res.status(400).json({ error: 'Current password is incorrect' })
+        }
+      }
       updateData.passwordHash = await bcrypt.hash(data.password, 10)
-      delete updateData.password
     }
 
     const user = await prisma.user.update({
       where: { id },
       data: updateData,
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: publicUserSelect,
     })
 
     res.json(user)
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isUniqueViolation(error)) {
+      return res.status(400).json({ error: 'Email already in use' })
+    }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'User not found' })
     }
     console.error('Update user error:', error)
     res.status(500).json({ error: 'Failed to update user' })
@@ -137,6 +166,9 @@ router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) 
     await prisma.user.delete({ where: { id } })
     res.json({ success: true })
   } catch (error) {
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'User not found' })
+    }
     console.error('Delete user error:', error)
     res.status(500).json({ error: 'Failed to delete user' })
   }

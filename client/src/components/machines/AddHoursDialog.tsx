@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X, Loader2, Clock } from 'lucide-react'
 import { Button, Input, Label } from '@/components/common'
 import { formatHours } from '@/lib/utils'
+import { todayDateInput } from '@/lib/dates'
 import { machineService } from '@/services/machines'
 
 interface AddHoursDialogProps {
@@ -26,14 +27,14 @@ export function AddHoursDialog({
   const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     hours: '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayDateInput(),
     notes: '',
   })
 
   const resetForm = () => {
     setFormData({
       hours: '',
-      date: new Date().toISOString().split('T')[0],
+      date: todayDateInput(),
       notes: '',
     })
     setError('')

@@ -1,10 +1,11 @@
 import { Router } from 'express'
-import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { prisma } from '../lib/prisma.js'
 import { authenticate, requireOperator, AuthRequest } from '../middleware/auth.js'
+import { isForeignKeyError, isNotFoundError, parseDate } from '../lib/errors.js'
+import { notifyUsers } from '../lib/notify.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 const createJobSchema = z.object({
   machineId: z.string().min(1),
@@ -33,7 +34,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         user: { select: { id: true, name: true } },
       },
       orderBy: { startTime: 'desc' },
-      take: limit ? parseInt(limit as string) : 100,
+      take: Math.min(1000, Math.max(1, parseInt(limit as string) || 100)),
     })
 
     res.json(jobs)
@@ -71,13 +72,19 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
   try {
     const data = createJobSchema.parse(req.body)
 
+    const startTime = parseDate(data.startTime)
+    const endTime = parseDate(data.endTime)
+    if ((data.startTime && !startTime) || (data.endTime && !endTime)) {
+      return res.status(400).json({ error: 'Invalid start or end time' })
+    }
+
     const job = await prisma.job.create({
       data: {
         machineId: data.machineId,
         userId: req.user!.id,
         name: data.name,
-        startTime: data.startTime ? new Date(data.startTime) : null,
-        endTime: data.endTime ? new Date(data.endTime) : null,
+        startTime,
+        endTime,
         status: data.status || 'queued',
         notes: data.notes || null,
       },
@@ -102,6 +109,9 @@ router.post('/', authenticate, requireOperator, async (req: AuthRequest, res) =>
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
     }
+    if (isForeignKeyError(error)) {
+      return res.status(404).json({ error: 'Machine not found' })
+    }
     console.error('Create job error:', error)
     res.status(500).json({ error: 'Failed to create job' })
   }
@@ -117,8 +127,16 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
     if (data.name) updateData.name = data.name
     if (data.status) updateData.status = data.status
     if (data.notes !== undefined) updateData.notes = data.notes
-    if (data.startTime) updateData.startTime = new Date(data.startTime)
-    if (data.endTime) updateData.endTime = new Date(data.endTime)
+    if (data.startTime) {
+      const startTime = parseDate(data.startTime)
+      if (!startTime) return res.status(400).json({ error: 'Invalid start time' })
+      updateData.startTime = startTime
+    }
+    if (data.endTime) {
+      const endTime = parseDate(data.endTime)
+      if (!endTime) return res.status(400).json({ error: 'Invalid end time' })
+      updateData.endTime = endTime
+    }
 
     const job = await prisma.job.update({
       where: { id },
@@ -140,13 +158,12 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
         },
       })
 
-      // Emit notification if job completed or failed
+      // Tell the job's owner when it finishes (persisted + pushed to their sockets)
       if (data.status === 'completed' || data.status === 'failed') {
-        const io = req.app.get('io')
-        io.emit('notification', {
+        await notifyUsers([job.userId], {
           type: 'job_complete',
           title: `Job ${data.status}`,
-          message: `Job "${job.name}" has ${data.status}`,
+          message: `Job "${job.name}" on ${job.machine.name} has ${data.status}`,
         })
       }
     }
@@ -155,6 +172,9 @@ router.patch('/:id', authenticate, requireOperator, async (req: AuthRequest, res
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
+    }
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Job not found' })
     }
     console.error('Update job error:', error)
     res.status(500).json({ error: 'Failed to update job' })
@@ -168,6 +188,9 @@ router.delete('/:id', authenticate, requireOperator, async (req: AuthRequest, re
     await prisma.job.delete({ where: { id } })
     res.json({ success: true })
   } catch (error) {
+    if (isNotFoundError(error)) {
+      return res.status(404).json({ error: 'Job not found' })
+    }
     console.error('Delete job error:', error)
     res.status(500).json({ error: 'Failed to delete job' })
   }

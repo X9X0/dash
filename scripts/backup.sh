@@ -53,17 +53,35 @@ fi
 if [ -n "$DB_FILE" ] && [ -f "$DB_FILE" ]; then
     log_info "Backing up database: $DB_FILE"
 
-    # Use sqlite3 backup command for a consistent backup
+    # Use sqlite3's online backup API for a consistent snapshot even while the
+    # server is writing.
     if command -v sqlite3 &> /dev/null; then
         sqlite3 "$DB_FILE" ".backup '$BACKUP_CONTENT_DIR/dash.db'"
     else
-        # Fallback to cp if sqlite3 not available
+        # Fallback: plain file copy. A copy of a live SQLite database can be
+        # inconsistent (a write in progress, or committed data still sitting in
+        # the -wal/-journal sidecar). Copy the sidecars too so SQLite can
+        # recover on open, and warn.
+        log_warn "sqlite3 not found; copying the database file directly."
+        log_warn "If the server is running, this copy may be inconsistent. Install sqlite3 or stop the service first."
         cp "$DB_FILE" "$BACKUP_CONTENT_DIR/dash.db"
+        for SIDECAR in wal journal; do
+            if [ -f "$DB_FILE-$SIDECAR" ]; then
+                log_warn "Database has a live $DB_FILE-$SIDECAR file; including it in the backup"
+                cp "$DB_FILE-$SIDECAR" "$BACKUP_CONTENT_DIR/dash.db-$SIDECAR"
+            fi
+        done
     fi
 
     log_success "Database backed up"
 else
-    log_warn "No database file found to backup"
+    # Fail loudly: a backup archive with no database is worse than no archive,
+    # because cron wrappers would report success. Non-zero exit makes the
+    # wrapper log an ERROR instead.
+    log_error "No database file found to backup (looked in $DATA_DIR/dash.db, server/prisma/dev.db, server/dev.db)"
+    log_error "Set DASH_DATA_DIR to the directory containing dash.db and try again."
+    rm -rf "$TEMP_DIR"
+    exit 1
 fi
 
 # Backup uploads directory if it exists
@@ -101,10 +119,12 @@ cat > "$BACKUP_CONTENT_DIR/backup_info.json" << EOF
 }
 EOF
 
-# Create tarball
+# Create tarball. It contains server.env (JWT secret, SMTP password), so make
+# it readable by the owner only.
 log_info "Creating backup archive..."
 cd "$TEMP_DIR"
 tar -czf "$BACKUP_DIR/$BACKUP_NAME.tar.gz" "$BACKUP_NAME"
+chmod 600 "$BACKUP_DIR/$BACKUP_NAME.tar.gz"
 
 # Cleanup temp directory
 rm -rf "$TEMP_DIR"
@@ -120,7 +140,10 @@ BACKUP_COUNT=$(ls -1 "$BACKUP_DIR"/dash_backup_*.tar.gz 2>/dev/null | wc -l)
 
 if [ "$BACKUP_COUNT" -gt "$KEEP_BACKUPS" ]; then
     log_info "Cleaning up old backups (keeping last $KEEP_BACKUPS)..."
-    ls -1t "$BACKUP_DIR"/dash_backup_*.tar.gz | tail -n +$((KEEP_BACKUPS + 1)) | xargs rm -f
+    # Read line by line (not xargs) so paths containing spaces are handled.
+    ls -1t "$BACKUP_DIR"/dash_backup_*.tar.gz | tail -n +$((KEEP_BACKUPS + 1)) | while IFS= read -r OLD_BACKUP; do
+        rm -f "$OLD_BACKUP"
+    done
     log_success "Old backups cleaned up"
 fi
 

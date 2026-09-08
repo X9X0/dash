@@ -1,11 +1,10 @@
 import { Router, type Response as ExpressResponse } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { Readable, pipeline } from 'stream'
 import { authenticate, authenticateMedia, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
 import { round2 } from '../lib/hours.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
 // Pipe an upstream body to the client. Unlike `source.pipe(res)`, `pipeline`
 // attaches error handlers to both ends, so an upstream reset mid-stream ends the
@@ -303,6 +302,13 @@ export function startBamBuddySync() {
   }, SYNC_INTERVAL)
 }
 
+export function stopBamBuddySync() {
+  if (syncInterval) {
+    clearInterval(syncInterval)
+    syncInterval = null
+  }
+}
+
 // =============================================================================
 // Routes
 // =============================================================================
@@ -441,13 +447,11 @@ router.get('/queue', authenticate, async (req: AuthRequest, res) => {
 // GET /print-log/all - Print history across all printers (for calendar)
 router.get('/print-log/all', authenticate, async (req: AuthRequest, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 100
-    const dateFrom = req.query.date_from as string | undefined
-    const dateTo = req.query.date_to as string | undefined
-    let url = `/print-log/?limit=${limit}`
-    if (dateFrom) url += `&date_from=${dateFrom}`
-    if (dateTo) url += `&date_to=${dateTo}`
-    const result = await bbFetch(url)
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit as string) || 100))
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (typeof req.query.date_from === 'string') params.set('date_from', req.query.date_from)
+    if (typeof req.query.date_to === 'string') params.set('date_to', req.query.date_to)
+    const result = await bbFetch(`/print-log/?${params.toString()}`)
     // Enrich with dashMachineId
     const mapping = await refreshMapping()
     const items = (result?.items || []).map((item: any) => {
@@ -468,7 +472,7 @@ router.get('/print-log/:machineId', authenticate, async (req: AuthRequest, res) 
       return res.json({ items: [], total: 0 })
     }
 
-    const limit = parseInt(req.query.limit as string) || 10
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit as string) || 10))
     const result = await bbFetch(`/print-log/?printer_id=${printer.bambuddyPrinterId}&limit=${limit}`)
     res.json(result)
   } catch {

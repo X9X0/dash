@@ -17,9 +17,14 @@
     "start": "npm run start --workspace=server",
     "db:push": "npm run db:push --workspace=server",
     "db:seed": "npm run db:seed --workspace=server",
-    "db:studio": "npm run db:studio --workspace=server"
+    "db:studio": "npm run db:studio --workspace=server",
+    "typecheck": "npm run typecheck --workspace=server && npm run typecheck --workspace=client",
+    "lint": "npm run lint --workspace=client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "overrides": {
+    "@types/express": "^4.17.21"
   }
 }
