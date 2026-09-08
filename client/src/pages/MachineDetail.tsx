@@ -71,6 +71,7 @@ import { userService } from '@/services/users'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/services/api'
 import { bambuddyService } from '@/services/bambuddy'
+import { ensureMediaToken } from '@/services/mediaToken'
 import type { BamBuddyPrinterStatus, BamBuddyPrintLogEntry, BamBuddyConfig, BamBuddyMaintenanceOverview } from '@/types/bambuddy'
 import { AddHoursDialog } from '@/components/machines/AddHoursDialog'
 import { AddServiceRecordDialog } from '@/components/machines/AddServiceRecordDialog'
@@ -233,6 +234,9 @@ export function MachineDetail() {
   const [bbCameraError, setBbCameraError] = useState(false)
   const [bbCameraLive, setBbCameraLive] = useState(false)
   const [bbSnapshotUrl, setBbSnapshotUrl] = useState<string | null>(null)
+  const [bbStreamUrl, setBbStreamUrl] = useState<string | null>(null)
+  // Short-lived token embedded in <img> URLs (camera, thumbnails); refreshed periodically
+  const [mediaToken, setMediaToken] = useState<string | null>(null)
   const snapshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [bbMaintenance, setBbMaintenance] = useState<BamBuddyMaintenanceOverview | null>(null)
 
@@ -303,10 +307,14 @@ export function MachineDetail() {
   }
 
   // Snapshot refresh: load a new snapshot every 5 seconds when not in live mode
-  const refreshSnapshot = useCallback(() => {
+  const refreshSnapshot = useCallback(async () => {
     if (!id) return
+    // Media URLs carry a short-lived token; make sure a valid one is cached first
+    const token = await ensureMediaToken()
+    if (!token) return
     // Append timestamp to bust browser cache
-    setBbSnapshotUrl(bambuddyService.getCameraSnapshotUrl(id) + '&_t=' + Date.now())
+    const base = bambuddyService.getCameraSnapshotUrl(id)
+    setBbSnapshotUrl(`${base}${base.includes('?') ? '&' : '?'}_t=${Date.now()}`)
   }, [id])
 
   useEffect(() => {
@@ -329,6 +337,37 @@ export function MachineDetail() {
       }
     }
   }, [id, bbStatus, bbCameraLive, refreshSnapshot])
+
+  // Keep a media token cached for thumbnail URLs; refresh well inside its 15 min lifetime
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => {
+      ensureMediaToken().then((token) => {
+        if (!cancelled) setMediaToken(token)
+      })
+    }
+    refresh()
+    const interval = setInterval(refresh, 10 * 60 * 1000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  // Live MJPEG stream URL, built only once a media token is available
+  useEffect(() => {
+    if (!id || !bbCameraLive) {
+      setBbStreamUrl(null)
+      return
+    }
+    let cancelled = false
+    ensureMediaToken().then((token) => {
+      if (!cancelled && token) setBbStreamUrl(bambuddyService.getCameraStreamUrl(id))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [id, bbCameraLive])
 
   const handleBBControl = async (action: 'stop' | 'pause' | 'resume') => {
     if (!id || !confirm(`Are you sure you want to ${action} the print?`)) return
@@ -1347,12 +1386,14 @@ export function MachineDetail() {
             <CardContent className="px-4 pb-4">
               {!bbCameraError ? (
                 bbCameraLive ? (
-                  <img
-                    src={bambuddyService.getCameraStreamUrl(id!)}
-                    alt="Printer camera live"
-                    className="w-full rounded-lg bg-muted"
-                    onError={() => setBbCameraError(true)}
-                  />
+                  bbStreamUrl && (
+                    <img
+                      src={bbStreamUrl}
+                      alt="Printer camera live"
+                      className="w-full rounded-lg bg-muted"
+                      onError={() => setBbCameraError(true)}
+                    />
+                  )
                 ) : (
                   bbSnapshotUrl && (
                     <img
@@ -1407,7 +1448,7 @@ export function MachineDetail() {
               <div className="space-y-2">
                 {bbPrintLog.map((entry) => (
                   <div key={entry.id} className="flex items-center gap-3 p-2 rounded-lg border">
-                    {entry.thumbnail_path ? (
+                    {entry.thumbnail_path && mediaToken ? (
                       <img
                         src={bambuddyService.getPrintLogThumbnailUrl(id!, entry.id)}
                         alt=""

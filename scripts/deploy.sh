@@ -334,13 +334,38 @@ setup_project() {
             cat > "$PROJECT_DIR/server/.env" << EOF
 PORT=3001
 DATABASE_URL=file:$DATA_DIR/dash.db
+DASH_DATA_DIR=$DATA_DIR
 JWT_SECRET=$(openssl rand -base64 32)
 NODE_ENV=production
 EOF
         fi
+        chmod 600 "$PROJECT_DIR/server/.env"
+        # The server refuses to start in production with a missing/placeholder secret,
+        # so fail loudly here rather than at first boot.
+        if ! grep -Eq '^JWT_SECRET=.{16,}$' "$PROJECT_DIR/server/.env"; then
+            log_error "Could not generate JWT_SECRET (is openssl installed?). Set it in server/.env before starting."
+            exit 1
+        fi
         log_success "Created server/.env"
     else
         log_info "server/.env already exists, skipping..."
+    fi
+
+    # The server stores uploads in DASH_DATA_DIR/uploads, which is the directory
+    # backup.sh archives. Without it uploads land in server/uploads and are never
+    # backed up. Add the variable to existing .env files that predate it.
+    if ! grep -q "^DASH_DATA_DIR=" "$PROJECT_DIR/server/.env"; then
+        printf '\n# Data directory: uploads are stored in DASH_DATA_DIR/uploads (included in backups)\nDASH_DATA_DIR=%s\n' "$DATA_DIR" >> "$PROJECT_DIR/server/.env"
+        log_success "Set DASH_DATA_DIR=$DATA_DIR in server/.env"
+    fi
+
+    # Older versions stored uploads in server/uploads. Copy them into the data
+    # directory; originals are left in place until you have verified the copy.
+    LEGACY_UPLOADS="$PROJECT_DIR/server/uploads"
+    if [ -d "$LEGACY_UPLOADS" ] && [ -n "$(ls -A "$LEGACY_UPLOADS" 2>/dev/null)" ]; then
+        log_info "Copying existing uploads from server/uploads to $DATA_DIR/uploads..."
+        cp -rn "$LEGACY_UPLOADS"/. "$DATA_DIR/uploads/"
+        log_success "Uploads copied. Remove server/uploads once you have verified $DATA_DIR/uploads"
     fi
 
     if [ ! -f "$PROJECT_DIR/client/.env" ]; then

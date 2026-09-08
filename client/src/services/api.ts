@@ -19,9 +19,15 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // A 401 from login/register just means bad credentials; let the form show
+    // the error. Any other 401 means our session is gone.
+    const requestUrl: string = error.config?.url ?? ''
+    const isAuthRequest = requestUrl.startsWith('/auth/')
+    if (error.response?.status === 401 && !isAuthRequest) {
       useAuthStore.getState().logout()
-      window.location.href = '/login'
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

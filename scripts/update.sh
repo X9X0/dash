@@ -14,6 +14,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+DATA_DIR="${DASH_DATA_DIR:-$PROJECT_DIR/data}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -105,7 +106,7 @@ if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
     if [ "$AUTO_RESET" -eq 1 ]; then
         log_info "Resetting to origin (--reset flag)..."
         git checkout -- .
-        git clean -fd
+        git clean -fd -e uploads -e scripts/backup-cron.sh
         log_success "Local changes discarded"
     elif [ "$AUTO_STASH" -eq 1 ]; then
         log_info "Stashing changes (--stash flag)..."
@@ -128,7 +129,7 @@ if [ -n "$MODIFIED_FILES" ] || [ -n "$UNTRACKED_FILES" ]; then
                 ;;
             [Rr])
                 git checkout -- .
-                git clean -fd
+                git clean -fd -e uploads -e scripts/backup-cron.sh
                 log_success "Local changes discarded"
                 ;;
             *)
@@ -164,6 +165,24 @@ git pull --ff-only || {
     exit 1
 }
 log_success "Git pull complete"
+
+# Make sure uploads live in the data directory (the one backup.sh archives).
+# Installs that predate DASH_DATA_DIR stored them in server/uploads, which was
+# never backed up. Copy them over; originals are left in place.
+if [ -f "$PROJECT_DIR/server/.env" ]; then
+    if ! grep -q "^DASH_DATA_DIR=" "$PROJECT_DIR/server/.env"; then
+        mkdir -p "$DATA_DIR/uploads"
+        printf '\n# Data directory: uploads are stored in DASH_DATA_DIR/uploads (included in backups)\nDASH_DATA_DIR=%s\n' "$DATA_DIR" >> "$PROJECT_DIR/server/.env"
+        log_success "Set DASH_DATA_DIR=$DATA_DIR in server/.env"
+    fi
+    LEGACY_UPLOADS="$PROJECT_DIR/server/uploads"
+    if [ -d "$LEGACY_UPLOADS" ] && [ -n "$(ls -A "$LEGACY_UPLOADS" 2>/dev/null)" ]; then
+        mkdir -p "$DATA_DIR/uploads"
+        log_info "Copying existing uploads from server/uploads to $DATA_DIR/uploads..."
+        cp -rn "$LEGACY_UPLOADS"/. "$DATA_DIR/uploads/"
+        log_success "Uploads copied. Remove server/uploads once you have verified $DATA_DIR/uploads"
+    fi
+fi
 
 # Ensure network discovery packages are installed (mDNS/NetBIOS for hostname resolution)
 ensure_network_discovery() {

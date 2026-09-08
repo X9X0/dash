@@ -1,8 +1,9 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
 import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { authenticate, AuthRequest } from '../middleware/auth.js'
+import { signAccessToken, signMediaToken, MEDIA_TOKEN_TTL_SECONDS } from '../lib/jwt.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -18,9 +19,31 @@ const loginSchema = z.object({
   password: z.string().min(1),
 })
 
+const ROLES = ['admin', 'operator', 'viewer'] as const
+
+/**
+ * Role given to self-registered users (the very first account is always admin).
+ * Defaults to the least-privileged role; an admin promotes people from the
+ * Users page. Override with REGISTRATION_ROLE=operator if open sign-up should
+ * grant machine control.
+ */
+function registrationRole(): (typeof ROLES)[number] {
+  const configured = process.env.REGISTRATION_ROLE
+  return configured && (ROLES as readonly string[]).includes(configured)
+    ? (configured as (typeof ROLES)[number])
+    : 'viewer'
+}
+
 router.post('/register', async (req, res) => {
   try {
     const { email, password, name } = registerSchema.parse(req.body)
+
+    // The first user can always register (they become admin). After that,
+    // ALLOW_REGISTRATION=false turns self sign-up off entirely.
+    const userCount = await prisma.user.count()
+    if (userCount > 0 && process.env.ALLOW_REGISTRATION === 'false') {
+      return res.status(403).json({ error: 'Registration is disabled. Ask an administrator to create your account.' })
+    }
 
     const existingUser = await prisma.user.findUnique({ where: { email } })
     if (existingUser) {
@@ -28,23 +51,14 @@ router.post('/register', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10)
-
-    // First user becomes admin
-    const userCount = await prisma.user.count()
-    const role = userCount === 0 ? 'admin' : 'operator'
+    const role = userCount === 0 ? 'admin' : registrationRole()
 
     const user = await prisma.user.create({
       data: { email, passwordHash, name, role },
       select: { id: true, email: true, name: true, role: true, createdAt: true },
     })
 
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET || 'fallback-secret',
-      { expiresIn: '7d' }
-    )
-
-    res.status(201).json({ user, token })
+    res.status(201).json({ user, token: signAccessToken(user.id) })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message })
@@ -68,12 +82,6 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET || 'fallback-secret',
-      { expiresIn: '7d' }
-    )
-
     res.json({
       user: {
         id: user.id,
@@ -82,7 +90,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
         createdAt: user.createdAt,
       },
-      token,
+      token: signAccessToken(user.id),
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -91,6 +99,15 @@ router.post('/login', async (req, res) => {
     console.error('Login error:', error)
     res.status(500).json({ error: 'Failed to login' })
   }
+})
+
+// Short-lived token for <img>-loaded media (camera snapshots/streams, thumbnails).
+// See authenticateMedia in middleware/auth.ts.
+router.get('/media-token', authenticate, (req: AuthRequest, res) => {
+  res.json({
+    token: signMediaToken(req.user!.id),
+    expiresIn: MEDIA_TOKEN_TTL_SECONDS,
+  })
 })
 
 export { router as authRouter }

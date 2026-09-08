@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io'
-import jwt from 'jsonwebtoken'
+import { verifyToken } from '../lib/jwt.js'
 
 interface AuthenticatedSocket extends Socket {
   userId?: string
@@ -10,15 +10,15 @@ export function setupSocket(io: Server) {
   io.use((socket: AuthenticatedSocket, next) => {
     const token = socket.handshake.auth?.token
 
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return next(new Error('Authentication required'))
     }
 
     try {
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || 'fallback-secret'
-      ) as { userId: string }
+      const decoded = verifyToken(token)
+      if (decoded.scope === 'media') {
+        return next(new Error('Invalid token'))
+      }
       socket.userId = decoded.userId
       next()
     } catch (error) {

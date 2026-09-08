@@ -1,14 +1,15 @@
-import express from 'express'
+// Must stay the first import: populates process.env before other modules load.
+import './lib/env.js'
+
+import express, { type ErrorRequestHandler } from 'express'
 import cors from 'cors'
+import multer from 'multer'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
-import dotenv from 'dotenv'
+import { dirname, extname, join } from 'path'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
+import { uploadsDir } from './lib/paths.js'
 import { authRouter } from './routes/auth.js'
 import { usersRouter } from './routes/users.js'
 import { machinesRouter } from './routes/machines.js'
@@ -25,7 +26,8 @@ import { startAutoHourTracking } from './jobs/autoHourTracking.js'
 import { startClaimExpiry } from './jobs/claimExpiry.js'
 import { startUptimeMonitoring } from './jobs/uptimeMonitoring.js'
 
-dotenv.config()
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const app = express()
 const httpServer = createServer(app)
@@ -40,15 +42,25 @@ const io = new Server(httpServer, {
 app.use(cors())
 app.use(express.json())
 
-// Serve uploaded files - handle both running from server/ or project root
-import { existsSync } from 'fs'
-let uploadsPath = join(process.cwd(), 'uploads')
-// If running from project root (e.g., dash/), look in server/uploads
-if (!existsSync(uploadsPath)) {
-  uploadsPath = join(process.cwd(), 'server', 'uploads')
-}
-console.log('Serving uploads from:', uploadsPath)
-app.use('/uploads', express.static(uploadsPath))
+// Serve uploaded files. Only raster images and PDFs may render inline; anything
+// else is forced to download so an uploaded file can never execute as a page on
+// this origin. nosniff stops browsers second-guessing the declared type.
+const INLINE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.pdf'])
+console.log('Serving uploads from:', uploadsDir)
+app.use(
+  '/uploads',
+  express.static(uploadsDir, {
+    index: false,
+    dotfiles: 'deny',
+    fallthrough: false,
+    setHeaders: (res, filePath) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff')
+      if (!INLINE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+        res.setHeader('Content-Disposition', 'attachment')
+      }
+    },
+  })
+)
 
 // Make io accessible to routes
 app.set('io', io)
@@ -71,6 +83,11 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
+// Unknown API routes get a JSON 404 rather than the SPA's index.html
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'Not found' })
+})
+
 // Serve static files from the React app in production
 if (process.env.NODE_ENV === 'production') {
   const clientDistPath = join(__dirname, '../../client/dist')
@@ -81,6 +98,29 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(join(clientDistPath, 'index.html'))
   })
 }
+
+// Central error handler: turns upload/body-parse errors into JSON 4xx responses
+// instead of Express's default HTML page, and never leaks stack traces.
+const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  if (res.headersSent) return next(err)
+
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: err.message })
+  }
+  const status = typeof err?.status === 'number' ? err.status : typeof err?.statusCode === 'number' ? err.statusCode : 500
+  if (status >= 400 && status < 500) {
+    const message = status === 404 ? 'Not found' : err.message || 'Bad request'
+    return res.status(status).json({ error: message })
+  }
+
+  console.error('Unhandled error:', err)
+  res.status(500).json({ error: 'Internal server error' })
+}
+app.use(errorHandler)
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason)
+})
 
 // Socket.io setup
 setupSocket(io)
