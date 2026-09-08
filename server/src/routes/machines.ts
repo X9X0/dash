@@ -1,15 +1,19 @@
 import { Router } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
 import dns from 'dns'
 import net from 'net'
 import { authenticate, requireAdmin, requireOperator, AuthRequest } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
 import { round2 } from '../lib/hours.js'
+import { pingHost, isSafeHostTarget } from '../lib/ping.js'
 
-const execAsync = promisify(exec)
+// External commands are run with execFile (argument array, no shell) and only
+// ever receive targets that passed isSafeHostTarget(). Hostnames here can come
+// from user input or from names other LAN devices advertise about themselves.
+const execFileAsync = promisify(execFile)
 const dnsLookup = promisify(dns.lookup)
 const dnsReverse = promisify(dns.reverse)
 
@@ -61,12 +65,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 // Try to resolve hostname from IP using platform commands (nbtstat, ping -a)
 // This works on Windows LANs where DNS PTR records don't exist
 async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
+  if (!isSafeHostTarget(ip)) return null
   const isWindows = process.platform === 'win32'
   try {
     if (isWindows) {
       // Try nbtstat first (NetBIOS name resolution - works on most Windows LANs)
       try {
-        const { stdout } = await execAsync(`nbtstat -A ${ip}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('nbtstat', ['-A', ip], { timeout: 3000 })
         const match = stdout.match(/<00>\s+UNIQUE\s+Registered\s+(\S+)/i) ||
                       stdout.match(/^\s*(\S+)\s+<00>/m)
         if (match?.[1] && match[1] !== ip) {
@@ -78,7 +83,7 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
 
       // Try ping -a (asks Windows to resolve the name)
       try {
-        const { stdout } = await execAsync(`ping -a -n 1 -w 1000 ${ip}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('ping', ['-a', '-n', '1', '-w', '1000', ip], { timeout: 3000 })
         const match = stdout.match(/Pinging\s+(\S+)\s+\[/)
         if (match?.[1] && match[1] !== ip) {
           return match[1].trim().toLowerCase()
@@ -91,7 +96,7 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
 
       // Strategy 1: host command (standard reverse DNS)
       try {
-        const { stdout } = await execAsync(`host ${ip}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('host', [ip], { timeout: 3000 })
         const match = stdout.match(/domain name pointer\s+(\S+)/i)
         if (match?.[1]) {
           return match[1].replace(/\.$/, '').replace(/\.local$/, '').toLowerCase()
@@ -102,7 +107,7 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
 
       // Strategy 2: nmblookup (Samba NetBIOS - equivalent of Windows nbtstat)
       try {
-        const { stdout } = await execAsync(`nmblookup -A ${ip}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('nmblookup', ['-A', ip], { timeout: 3000 })
         const match = stdout.match(/^\s+(\S+)\s+<00>\s+-\s+.*<ACTIVE>/mi)
         if (match?.[1] && match[1] !== ip) {
           return match[1].trim().toLowerCase()
@@ -113,7 +118,7 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
 
       // Strategy 3: avahi-resolve-address (mDNS/Bonjour)
       try {
-        const { stdout } = await execAsync(`avahi-resolve-address ${ip}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('avahi-resolve-address', [ip], { timeout: 3000 })
         const match = stdout.match(/\s+(\S+)\s*$/)
         if (match?.[1] && match[1] !== ip) {
           return match[1].replace(/\.$/, '').replace(/\.local$/, '').trim().toLowerCase()
@@ -130,12 +135,13 @@ async function resolveHostnameViaSystem(ip: string): Promise<string | null> {
 
 // Try to resolve IP from hostname using platform commands
 async function resolveIPViaSystem(hostname: string): Promise<string | null> {
+  if (!isSafeHostTarget(hostname)) return null
   const isWindows = process.platform === 'win32'
   try {
     if (isWindows) {
       // Try nslookup first
       try {
-        const { stdout } = await execAsync(`nslookup ${hostname}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('nslookup', [hostname], { timeout: 3000 })
         // nslookup output: look for the address after the "Name:" line
         const lines = stdout.split('\n')
         let foundName = false
@@ -155,7 +161,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
       // Try ping -a (uses LLMNR/mDNS which works on LANs where DNS doesn't)
       // Output: "Pinging hostname.domain [192.168.1.1] with 32 bytes of data:"
       try {
-        const { stdout } = await execAsync(`ping -a -n 1 -w 1000 ${hostname}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('ping', ['-a', '-n', '1', '-w', '1000', hostname], { timeout: 3000 })
         const match = stdout.match(/Pinging\s+\S+\s+\[(\S+)\]/)
         if (match?.[1] && net.isIP(match[1])) {
           return match[1]
@@ -166,7 +172,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
     } else {
       // Strategy 1: getent hosts
       try {
-        const { stdout } = await execAsync(`getent hosts ${hostname}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('getent', ['hosts', hostname], { timeout: 3000 })
         const match = stdout.match(/^(\S+)/)
         if (match?.[1] && net.isIP(match[1])) {
           return match[1]
@@ -177,7 +183,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
 
       // Strategy 2: nmblookup (NetBIOS forward lookup)
       try {
-        const { stdout } = await execAsync(`nmblookup ${hostname}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('nmblookup', [hostname], { timeout: 3000 })
         const match = stdout.match(/^(\S+)\s+\S+<00>/m)
         if (match?.[1] && net.isIP(match[1])) {
           return match[1]
@@ -190,7 +196,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
       // Linux ping output: "PING hostname.local (192.168.1.1) ..."
       if (!hostname.endsWith('.local')) {
         try {
-          const { stdout } = await execAsync(`ping -c 1 -W 1 ${hostname}.local`, { timeout: 3000 })
+          const { stdout } = await execFileAsync('ping', ['-c', '1', '-W', '1', `${hostname}.local`], { timeout: 3000 })
           const match = stdout.match(/PING\s+\S+\s+\((\S+)\)/)
           if (match?.[1] && net.isIP(match[1])) {
             return match[1]
@@ -202,7 +208,7 @@ async function resolveIPViaSystem(hostname: string): Promise<string | null> {
 
       // Strategy 4: ping without .local (system resolver)
       try {
-        const { stdout } = await execAsync(`ping -c 1 -W 1 ${hostname}`, { timeout: 3000 })
+        const { stdout } = await execFileAsync('ping', ['-c', '1', '-W', '1', hostname], { timeout: 3000 })
         const match = stdout.match(/PING\s+\S+\s+\((\S+)\)/)
         if (match?.[1] && net.isIP(match[1])) {
           return match[1]
@@ -228,6 +234,12 @@ async function resolveAddress(address: string, machineNameHint?: string): Promis
 
   let resolvedIP: string | null = null
   let resolvedHostname: string | null = null
+
+  if (!isSafeHostTarget(address)) {
+    console.warn(`[DNS] Skipping invalid address: ${JSON.stringify(address)}`)
+    dnsCache.set(address, { resolvedIP, resolvedHostname, timestamp: Date.now() })
+    return { resolvedIP, resolvedHostname }
+  }
 
   try {
     if (isIPAddress(address)) {
@@ -313,30 +325,20 @@ async function resolveAddress(address: string, machineNameHint?: string): Promis
     console.error(`[DNS] Error resolving ${address}:`, error)
   }
 
+  // Names learned from the network (PTR, NetBIOS, mDNS) are chosen by other
+  // devices; never let a malformed one reach a subprocess.
+  if (resolvedHostname && !isSafeHostTarget(resolvedHostname)) {
+    console.warn(`[DNS] Discarding invalid resolved hostname for ${address}: ${JSON.stringify(resolvedHostname)}`)
+    resolvedHostname = null
+  }
+  if (resolvedIP && !isIPAddress(resolvedIP)) {
+    resolvedIP = null
+  }
+
   // Cache the result (even failures, to avoid hammering DNS)
   dnsCache.set(address, { resolvedIP, resolvedHostname, timestamp: Date.now() })
 
   return { resolvedIP, resolvedHostname }
-}
-
-// Ping with retry - pings twice before declaring offline
-async function pingWithRetry(target: string, retries = 2): Promise<boolean> {
-  const isWindows = process.platform === 'win32'
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const pingCmd = isWindows
-        ? `ping -n 1 -w 2000 ${target}`
-        : `ping -c 1 -W 2 ${target}`
-      await execAsync(pingCmd, { timeout: 5000 })
-      return true
-    } catch {
-      // If this wasn't the last attempt, wait briefly before retrying
-      if (attempt < retries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    }
-  }
-  return false
 }
 
 // Get cached ping result or null if not cached/expired
@@ -351,8 +353,12 @@ const router = Router()
 const prisma = new PrismaClient()
 
 const addIPSchema = z.object({
-  label: z.string().min(1),
-  ipAddress: z.string().min(1),
+  label: z.string().trim().min(1),
+  ipAddress: z
+    .string()
+    .trim()
+    .min(1)
+    .refine(isSafeHostTarget, { message: 'Must be a valid IP address or hostname' }),
 })
 
 const createMachineSchema = z.object({
@@ -398,12 +404,28 @@ const addHoursSchema = z.object({
 })
 
 // Get all machines (public - for kiosk mode)
+// Unauthenticated, so only the fields the kiosk displays are returned. Internal
+// notes, alert email recipients, monitoring settings and IP addresses stay private.
 router.get('/public', async (req, res) => {
   try {
     const machines = await prisma.machine.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        typeId: true,
+        model: true,
+        location: true,
+        status: true,
+        condition: true,
+        statusNote: true,
+        hourMeter: true,
+        icon: true,
+        isOnline: true,
+        claimedById: true,
+        claimedAt: true,
+        claimExpiresAt: true,
+        createdAt: true,
         type: true,
-        ips: true,
         claimedBy: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },
@@ -1302,8 +1324,8 @@ router.get('/:id/ping', authenticate, async (req: AuthRequest, res) => {
 
         // Ping IP and hostname in parallel (2 attempts before declaring offline)
         const [reachable, hostnameReachable] = await Promise.all([
-          pingWithRetry(pingTarget, 2),
-          hostnamePingTarget ? pingWithRetry(hostnamePingTarget, 2) : Promise.resolve(null),
+          pingHost(pingTarget, 2),
+          hostnamePingTarget ? pingHost(hostnamePingTarget, 2) : Promise.resolve(null),
         ])
 
         // Cache the result
@@ -1366,8 +1388,8 @@ async function pingMachineFirstIP(machine: { id: string; name: string; ips: Arra
 
   // Ping IP and hostname in parallel (2 attempts)
   const [reachable, hostnameReachable] = await Promise.all([
-    pingWithRetry(pingTarget, 2),
-    hostnamePingTarget ? pingWithRetry(hostnamePingTarget, 2) : Promise.resolve(null),
+    pingHost(pingTarget, 2),
+    hostnamePingTarget ? pingHost(hostnamePingTarget, 2) : Promise.resolve(null),
   ])
 
   // Cache the result

@@ -34,6 +34,8 @@ The application will be available at:
 - Email: admin@example.com
 - Password: admin123
 
+Change this password after first login. New users who register themselves get the read-only `viewer` role; promote them on the Users page (see `REGISTRATION_ROLE` / `ALLOW_REGISTRATION` in the configuration reference).
+
 ## Project Structure
 
 ```
@@ -405,8 +407,12 @@ sudo systemctl start dash
 |----------|-------------|---------|
 | `PORT` | Server port | `3001` |
 | `DATABASE_URL` | SQLite database path | `file:./prisma/dev.db` |
-| `JWT_SECRET` | Secret key for JWT tokens | (generate secure random) |
+| `JWT_SECRET` | Secret key for JWT tokens. Required in production; the server refuses to start with the placeholder value | (generate with `openssl rand -base64 32`) |
 | `NODE_ENV` | Environment mode | `development` |
+| `DASH_DATA_DIR` | Data directory. Uploads are stored in `DASH_DATA_DIR/uploads`, which is what the backup scripts archive | `./data` (set by deploy/update scripts) |
+| `UPLOADS_DIR` | Override the uploads directory | `DASH_DATA_DIR/uploads` |
+| `REGISTRATION_ROLE` | Role given to self-registered users (`viewer` or `operator`). The first user is always `admin` | `viewer` |
+| `ALLOW_REGISTRATION` | Set to `false` to disable self sign-up (admins create accounts instead) | `true` |
 | `SMTP_HOST` | Email server (optional) | - |
 | `SMTP_PORT` | Email port (optional) | - |
 | `SMTP_USER` | Email username (optional) | - |

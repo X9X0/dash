@@ -1,5 +1,5 @@
 import api from './api'
-import { useAuthStore } from '@/store/authStore'
+import { getMediaToken } from './mediaToken'
 import type {
   BamBuddyPrinterStatus,
   BamBuddyQueueItem,
@@ -107,18 +107,24 @@ export const bambuddyService = {
     return data
   },
 
+  // The URL builders below are used as <img src>, so they carry a short-lived
+  // media token (see services/mediaToken.ts). Callers should await
+  // ensureMediaToken() before building a URL, otherwise the request will be
+  // unauthenticated.
   getCameraStreamUrl(machineId: string): string {
-    const token = useAuthStore.getState().token
-    return `/api/bambuddy/camera/${machineId}/stream${token ? `?token=${token}` : ''}`
+    return withMediaToken(`/api/bambuddy/camera/${machineId}/stream`)
   },
 
   getCameraSnapshotUrl(machineId: string): string {
-    const token = useAuthStore.getState().token
-    return `/api/bambuddy/camera/${machineId}/snapshot${token ? `?token=${token}` : ''}`
+    return withMediaToken(`/api/bambuddy/camera/${machineId}/snapshot`)
   },
 
   getPrintLogThumbnailUrl(machineId: string, entryId: number): string {
-    const token = useAuthStore.getState().token
-    return `/api/bambuddy/print-log/${machineId}/thumbnail/${entryId}${token ? `?token=${token}` : ''}`
+    return withMediaToken(`/api/bambuddy/print-log/${machineId}/thumbnail/${entryId}`)
   },
+}
+
+function withMediaToken(path: string): string {
+  const token = getMediaToken()
+  return token ? `${path}?token=${encodeURIComponent(token)}` : path
 }

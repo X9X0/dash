@@ -1,11 +1,28 @@
-import { Router } from 'express'
+import { Router, type Response as ExpressResponse } from 'express'
 import { PrismaClient } from '@prisma/client'
-import { Readable } from 'stream'
-import { authenticate, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
+import { Readable, pipeline } from 'stream'
+import { authenticate, authenticateMedia, requireOperator, requireAdmin, AuthRequest } from '../middleware/auth.js'
 import { round2 } from '../lib/hours.js'
 
 const router = Router()
 const prisma = new PrismaClient()
+
+// Pipe an upstream body to the client. Unlike `source.pipe(res)`, `pipeline`
+// attaches error handlers to both ends, so an upstream reset mid-stream ends the
+// response instead of raising an unhandled 'error' event that would take the
+// whole server process down.
+function pipeToResponse(source: Readable, res: ExpressResponse, label: string): void {
+  pipeline(source, res, (err) => {
+    if (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      // Client went away / we aborted: normal for long-lived MJPEG streams.
+      if (code !== 'ERR_STREAM_PREMATURE_CLOSE' && err.name !== 'AbortError') {
+        console.error(`[BamBuddy] ${label} stream error:`, err.message)
+      }
+    }
+    if (!res.writableEnded) res.end()
+  })
+}
 
 // --- Printer mapping cache ---
 interface PrinterMapping {
@@ -494,7 +511,8 @@ router.get('/maintenance/:machineId', authenticate, async (req: AuthRequest, res
 })
 
 // GET /camera/:machineId/snapshot - Proxy camera snapshot (JPEG)
-router.get('/camera/:machineId/snapshot', authenticate, async (req: AuthRequest, res) => {
+// Loaded via <img>, so uses authenticateMedia (short-lived ?token=).
+router.get('/camera/:machineId/snapshot', authenticateMedia, async (req: AuthRequest, res) => {
   try {
     const printer = await findPrinter(req.params.machineId as string)
     if (!printer) {
@@ -507,7 +525,7 @@ router.get('/camera/:machineId/snapshot', authenticate, async (req: AuthRequest,
 
     if (response.body) {
       const nodeStream = Readable.fromWeb(response.body as any)
-      nodeStream.pipe(res)
+      pipeToResponse(nodeStream, res, 'snapshot')
     } else {
       res.status(502).json({ error: 'No camera data' })
     }
@@ -517,14 +535,15 @@ router.get('/camera/:machineId/snapshot', authenticate, async (req: AuthRequest,
 })
 
 // GET /camera/:machineId/stream - Proxy MJPEG camera stream
-router.get('/camera/:machineId/stream', authenticate, async (req: AuthRequest, res) => {
+// Loaded via <img>, so uses authenticateMedia (short-lived ?token=).
+router.get('/camera/:machineId/stream', authenticateMedia, async (req: AuthRequest, res) => {
   try {
     const printer = await findPrinter(req.params.machineId as string)
     if (!printer) {
       return res.status(404).json({ error: 'Printer not linked' })
     }
 
-    const fps = parseInt(req.query.fps as string) || 10
+    const fps = Math.min(30, Math.max(1, parseInt(req.query.fps as string) || 10))
     const response = await bbFetchRaw(`/printers/${printer.bambuddyPrinterId}/camera/stream?fps=${fps}`, { streaming: true })
 
     // Forward the content type header (multipart/x-mixed-replace)
@@ -545,7 +564,7 @@ router.get('/camera/:machineId/stream', authenticate, async (req: AuthRequest, r
         nodeStream.destroy()
       })
 
-      nodeStream.pipe(res)
+      pipeToResponse(nodeStream, res, 'camera')
     } else {
       res.status(502).json({ error: 'No camera stream' })
     }
@@ -555,15 +574,20 @@ router.get('/camera/:machineId/stream', authenticate, async (req: AuthRequest, r
 })
 
 // GET /print-log/:machineId/thumbnail/:entryId - Proxy print log thumbnail
-router.get('/print-log/:machineId/thumbnail/:entryId', authenticate, async (req: AuthRequest, res) => {
+// Loaded via <img>, so uses authenticateMedia (short-lived ?token=).
+router.get('/print-log/:machineId/thumbnail/:entryId', authenticateMedia, async (req: AuthRequest, res) => {
+  const entryId = req.params.entryId as string
+  if (!/^\d+$/.test(entryId)) {
+    return res.status(400).json({ error: 'Invalid entry id' })
+  }
   try {
-    const response = await bbFetchRaw(`/print-log/${req.params.entryId as string}/thumbnail`)
+    const response = await bbFetchRaw(`/print-log/${encodeURIComponent(entryId)}/thumbnail`)
     res.set('Content-Type', 'image/png')
-    res.set('Cache-Control', 'public, max-age=86400')
+    res.set('Cache-Control', 'private, max-age=86400')
 
     if (response.body) {
       const nodeStream = Readable.fromWeb(response.body as any)
-      nodeStream.pipe(res)
+      pipeToResponse(nodeStream, res, 'thumbnail')
     } else {
       res.status(404).json({ error: 'No thumbnail' })
     }
